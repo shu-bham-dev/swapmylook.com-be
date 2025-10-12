@@ -8,7 +8,7 @@ const auditSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['generation', 'download', 'upload', 'login', 'quota_adjustment', 'subscription_change'],
+    enum: ['generation', 'download', 'upload', 'login', 'quota_adjustment', 'subscription_change', 'outfits'],
     required: true
   },
   action: {
@@ -26,7 +26,7 @@ const auditSchema = new mongoose.Schema({
   },
   resourceType: {
     type: String,
-    enum: ['image', 'job', 'project', 'user'],
+    enum: ['image', 'job', 'project', 'user', 'outfits'],
     default: null
   },
   details: {

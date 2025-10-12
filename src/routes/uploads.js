@@ -144,7 +144,7 @@ router.post('/signed-url', requireAuth(), uploadRateLimiter, asyncHandler(async 
   }
 
   // Generate storage key
-  const storageKey = generateStorageKey(`uploads/${purpose}`, filename, req.user.id);
+  const storageKey = generateStorageKey(`uploads/${purpose}`, filename, req.user._id);
 
   // Generate signed upload URL
   const { uploadUrl, expiresAt } = await generateUploadUrl(
@@ -155,7 +155,7 @@ router.post('/signed-url', requireAuth(), uploadRateLimiter, asyncHandler(async 
 
   // Log the signed URL generation
   await Audit.logUsage({
-    userId: req.user.id,
+    userId: req.user._id,
     type: 'upload',
     action: 'signed_url_generated',
     resourceType: 'upload',
@@ -285,7 +285,7 @@ router.post('/complete', requireAuth(), uploadRateLimiter, asyncHandler(async (r
 
   // Create image asset record
   const imageAsset = new ImageAsset({
-    userId: req.user.id,
+    userId: req.user._id,
     projectId: projectId || null,
     type,
     storageKey,
@@ -306,7 +306,7 @@ router.post('/complete', requireAuth(), uploadRateLimiter, asyncHandler(async (r
 
   // Log successful upload completion
   await Audit.logUsage({
-    userId: req.user.id,
+    userId: req.user._id,
     type: 'upload',
     action: 'upload_completed',
     resourceType: 'image',
@@ -429,7 +429,7 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
   }
 
   // Generate storage key
-  const storageKey = generateStorageKey(`uploads/${purpose}`, file.originalname, req.user.id);
+  const storageKey = generateStorageKey(`uploads/${purpose}`, file.originalname, req.user._id);
 
   // Upload directly to storage
   await uploadBuffer(file.buffer, storageKey, file.mimetype);
@@ -439,7 +439,7 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
 
   // Create image asset record
   const imageAsset = new ImageAsset({
-    userId: req.user.id,
+    userId: req.user._id,
     projectId: projectId || null,
     type: purpose,
     storageKey,
@@ -458,7 +458,7 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
 
   // Log successful direct upload
   await Audit.logUsage({
-    userId: req.user.id,
+    userId: req.user._id,
     type: 'upload',
     action: 'direct_upload_completed',
     resourceType: 'image',
@@ -607,7 +607,7 @@ router.post('/thumbnail', requireAuth(), uploadRateLimiter, asyncHandler(async (
     const thumbnailKey = generateStorageKey(
       'thumbnails',
       `thumbnail-${size}-${originalImage.metadata.filename}.jpg`,
-      req.user.id
+      req.user._id
     );
 
     // Upload thumbnail
@@ -618,7 +618,7 @@ router.post('/thumbnail', requireAuth(), uploadRateLimiter, asyncHandler(async (
 
     // Create thumbnail asset record
     const thumbnailAsset = new ImageAsset({
-      userId: req.user.id,
+      userId: req.user._id,
       projectId: originalImage.projectId,
       type: 'thumbnail',
       storageKey: thumbnailKey,
@@ -641,7 +641,7 @@ router.post('/thumbnail', requireAuth(), uploadRateLimiter, asyncHandler(async (
 
   // Log thumbnail generation
   await Audit.logUsage({
-    userId: req.user.id,
+    userId: req.user._id,
     type: 'upload',
     action: 'thumbnails_generated',
     resourceType: 'image',

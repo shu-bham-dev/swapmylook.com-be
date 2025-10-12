@@ -1,4 +1,3 @@
-import { generateDownloadUrl } from '../config/storage.js';
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import ImageAsset from '../models/ImageAsset.js';
@@ -14,89 +13,139 @@ dotenv.config();
 
 const logger = createLogger('image-processor');
 
-// nanobanana API configuration
-const NANOBANANA_CONFIG = {
-  baseURL: process.env.NANOBANANA_BASE_URL || 'https://api.nanobanana.ai',
-  apiKey: process.env.NANOBANANA_API_KEY,
-  timeout: 300000, // 5 minutes
+// Gemini API configuration
+const GEMINI_CONFIG = {
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/models',
+  model: 'gemini-2.5-flash-image:generateContent',
+  timeout: 120000, // 2 minutes
   maxRetries: 3
 };
 
 /**
- * Call nanobanana API for image generation
+ * Call Gemini API for image generation
  */
-async function callNanobananaAPI(payload) {
-  if (!NANOBANANA_CONFIG.apiKey) {
-    throw new Error('nanobanana API key not configured');
+async function callGeminiAPI(modelImageBuffer, outfitImageBuffer, prompt) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured');
   }
 
   try {
-    // Create HTTPS agent to handle SSL issues
-    const httpsAgent = new https.Agent({
-      rejectUnauthorized: false
-    });
+    // Convert images to base64
+    const modelImageBase64 = modelImageBuffer.toString('base64');
+    const outfitImageBase64 = outfitImageBuffer.toString('base64');
 
-    const apiUrl = `${NANOBANANA_CONFIG.baseURL}/nanobanana/generate`;
+    // Prepare Gemini API request payload using the correct format
+    const geminiPayload = {
+      contents: [
+        {
+          parts: [
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: modelImageBase64
+              }
+            },
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: outfitImageBase64
+              }
+            },
+            {
+              text: prompt || "Create a professional e-commerce fashion photo. Take the outfit from the first image and let the model from the second image wear it. Generate a realistic, full-body shot of the model wearing the outfit, with the lighting and shadows adjusted to match the environment."
+            }
+          ]
+        }
+      ]
+    };
+
+    const apiUrl = `${GEMINI_CONFIG.baseURL}/${GEMINI_CONFIG.model}`;
     
-    // Log the exact API call details
-    logger.debug('Making nanobanana API call', {
+    // Log the API call details
+    logger.debug('Making Gemini API call', {
       url: apiUrl,
       headers: {
-        'Authorization': `Bearer ${NANOBANANA_CONFIG.apiKey.substring(0, 10)}...`,
+        'x-goog-api-key': `${process.env.GEMINI_API_KEY.substring(0, 10)}...`,
         'Content-Type': 'application/json'
       },
-      payload: payload,
-      timeout: NANOBANANA_CONFIG.timeout
+      timeout: GEMINI_CONFIG.timeout
     });
+
+    // Debug: Log full payload for troubleshooting
+    console.log('🔍 Gemini API Payload:', JSON.stringify({
+      url: apiUrl,
+      payload: {
+        ...geminiPayload,
+        contents: geminiPayload.contents.map(content => ({
+          ...content,
+          parts: content.parts.map(part => {
+            if (part.inlineData) {
+              return {
+                ...part,
+                inlineData: {
+                  ...part.inlineData,
+                  data: `${part.inlineData.data.substring(0, 50)}...` // Truncate base64 for readability
+                }
+              };
+            }
+            return part;
+          })
+        }))
+      }
+    }, null, 2));
 
     const response = await axios.post(
       apiUrl,
-      payload,
+      geminiPayload,
       {
         headers: {
-          'Authorization': `Bearer ${NANOBANANA_CONFIG.apiKey}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-goog-api-key': process.env.GEMINI_API_KEY
         },
-        timeout: NANOBANANA_CONFIG.timeout,
-        httpsAgent: httpsAgent
+        timeout: GEMINI_CONFIG.timeout
       }
     );
 
-    logger.debug('nanobanana API response', {
+    logger.debug('Gemini API response received', {
       status: response.status,
-      headers: response.headers,
-      data: response.data
+      hasCandidates: !!response.data.candidates,
+      responseKeys: Object.keys(response.data)
     });
+
+    // Debug: Log full response structure for troubleshooting
+    console.log('🔍 Gemini API Response:', JSON.stringify({
+      status: response.status,
+      data: response.data
+    }, null, 2));
 
     return response.data;
   } catch (error) {
     // Enhanced error logging
     if (error.response) {
       // API returned error response
-      logger.error('nanobanana API error response', {
+      logger.error('Gemini API error response', {
         status: error.response.status,
         statusText: error.response.statusText,
-        headers: error.response.headers,
         data: error.response.data,
         url: error.config?.url,
         method: error.config?.method
       });
-      throw new Error(`nanobanana API error: ${error.response.status} - ${error.response.data?.message || error.response.statusText || 'Unknown error'}`);
+      throw new Error(`Gemini API error: ${error.response.status} - ${error.response.data?.error?.message || error.response.statusText || 'Unknown error'}`);
     } else if (error.request) {
       // Network error
-      logger.error('nanobanana API network error', {
+      logger.error('Gemini API network error', {
         message: error.message,
         code: error.code,
         url: error.config?.url
       });
-      throw new Error('nanobanana API network error: No response received');
+      throw new Error('Gemini API network error: No response received');
     } else {
       // Other error
-      logger.error('nanobanana API general error', {
+      logger.error('Gemini API general error', {
         message: error.message,
         stack: error.stack
       });
-      throw new Error(`nanobanana API error: ${error.message}`);
+      throw new Error(`Gemini API error: ${error.message}`);
     }
   }
 }
@@ -130,61 +179,124 @@ async function processGenerationJob(job) {
       throw new Error('Input images not found');
     }
 
+    // Import storage functions
+    const { generateDownloadUrl } = await import('../config/storage.js');
+    
     // Generate signed URLs for input images
     const [modelUrl, outfitUrl] = await Promise.all([
       generateDownloadUrl(modelImage.storageKey, 3600),
       generateDownloadUrl(outfitImage.storageKey, 3600)
     ]);
-
-    // Prepare payload for nanobanana API
-    const payload = {
-      numImages: 1,
-      prompt: jobRecord.prompt || "Generate outfit on model",
-      type: "IMAGETOIAMGE", // Corrected type value
-      callBackUrl: process.env.NANOBANANA_CALLBACK_URL || `${process.env.APP_URL}/api/v1/generate/webhook`,
-      imageUrls: [modelUrl, outfitUrl]
-    };
-
-    logger.debug('Calling nanobanana API', {
-      jobId,
-      payload: { ...payload, imageUrls: ['REDACTED', 'REDACTED'] }
-    });
-
-    // Call nanobanana API to initiate generation
-    const result = await callNanobananaAPI(payload);
-
-    // Check if the API call was successful
-    if (result.code !== 200) {
-      throw new Error(`nanobanana API error: ${result.msg || 'Unknown error'}`);
-    }
-
-    if (!result.data?.taskId) {
-      throw new Error('nanobanana API did not return a task ID');
-    }
-
-    // Update job record with nanobanana task ID and mark as processing
-    jobRecord.nanobananaJobId = result.data.taskId;
-    jobRecord.status = 'processing';
-    await jobRecord.save();
-
-    // For nanobanana, we need to wait for the webhook callback
-    // The actual processing will be handled by the webhook endpoint
-    // For now, we'll mark the job as processing and wait for callback
     
-    logger.info('nanobanana job initiated', {
+    // Download input images
+    const [modelResponse, outfitResponse] = await Promise.all([
+      axios.get(modelUrl, {
+        responseType: 'arraybuffer'
+      }),
+      axios.get(outfitUrl, {
+        responseType: 'arraybuffer'
+      })
+    ]);
+
+    const modelImageBuffer = Buffer.from(modelResponse.data);
+    const outfitImageBuffer = Buffer.from(outfitResponse.data);
+
+    logger.debug('Downloaded input images', {
       jobId,
-      nanobananaJobId: result.data.taskId,
-      status: 'waiting_for_callback'
+      modelImageSize: modelImageBuffer.length,
+      outfitImageSize: outfitImageBuffer.length
     });
 
-    // Since we're using webhooks, we don't complete the job here
-    // The webhook will handle the completion
-    return {
-      success: true,
-      nanobananaJobId: result.data.taskId,
-      status: 'processing',
-      message: 'Generation initiated, waiting for webhook callback'
-    };
+    // Call Gemini API for generation
+    const geminiResult = await callGeminiAPI(
+      modelImageBuffer,
+      outfitImageBuffer,
+      jobRecord.prompt || "Generate a realistic outfit on the model person"
+    );
+
+    // Extract the generated image from Gemini response
+    console.log('🔍 Checking Gemini response structure...');
+    console.log('   Has candidates:', !!geminiResult.candidates);
+    
+    if (!geminiResult.candidates || !geminiResult.candidates[0]) {
+      throw new Error('Gemini API did not return any candidates');
+    }
+
+    const candidate = geminiResult.candidates[0];
+    console.log('   Candidate 0 has content:', !!candidate.content);
+    
+    if (!candidate.content || !candidate.content.parts) {
+      throw new Error('Gemini API candidate has no content or parts');
+    }
+
+    console.log('   Parts count:', candidate.content.parts.length);
+    
+    // Search through all parts to find the image data
+    let generatedImageData = null;
+    candidate.content.parts.forEach((part, index) => {
+      console.log(`   Part ${index} type:`, part.text ? 'text' : part.inlineData ? 'inlineData' : 'unknown');
+      if (part.inlineData) {
+        console.log(`   Part ${index} inlineData mimeType:`, part.inlineData.mimeType);
+        if (!generatedImageData) {
+          generatedImageData = part.inlineData;
+        }
+      }
+    });
+
+    if (!generatedImageData) {
+      console.log('❌ No image data found in response parts');
+      console.log('📋 Available parts:', candidate.content.parts.map((part, index) => ({
+        index,
+        type: part.text ? 'text' : part.inlineData ? 'inlineData' : 'unknown',
+        text: part.text ? part.text.substring(0, 100) + '...' : undefined,
+        mimeType: part.inlineData?.mimeType
+      })));
+      throw new Error('Gemini API did not return a valid image response - no inlineData found in parts');
+    }
+
+    console.log('✅ Found image data with mimeType:', generatedImageData.mimeType);
+    
+    // Convert base64 image to buffer
+    const outputImageBuffer = Buffer.from(generatedImageData.data, 'base64');
+
+    // Generate storage key for output (without extension - let Cloudinary detect)
+    const { generateStorageKey, uploadBuffer } = await import('../config/storage.js');
+    const outputKey = generateStorageKey('outputs', `output-${jobId}`, jobRecord.userId);
+
+    // Upload output to storage (let Cloudinary detect MIME type)
+    await uploadBuffer(outputImageBuffer, outputKey, generatedImageData.mimeType);
+
+    // Generate download URL
+    const downloadUrl = await generateDownloadUrl(outputKey, 86400); // 24 hours
+
+    // Create output image asset
+    const outputImage = new ImageAsset({
+      userId: jobRecord.userId,
+      type: 'output',
+      storageKey: outputKey,
+      url: downloadUrl,
+      mimeType: generatedImageData.mimeType,
+      sizeBytes: outputImageBuffer.length,
+      originalImageId: jobRecord.inputModelImageId,
+      metadata: {
+        filename: `output-${jobId}`,
+        prompt: jobRecord.prompt,
+        options: jobRecord.options,
+        processingTime: Date.now() - startTime,
+        aiModel: 'gemini-2.5-flash-image',
+        source: 'worker-generation'
+      }
+    });
+
+    await outputImage.save();
+
+    // Update job record with success
+    const processingTime = Date.now() - startTime;
+    jobRecord.status = 'succeeded';
+    jobRecord.outputImageId = outputImage._id;
+    jobRecord.completedAt = new Date();
+    jobRecord.processingTime = processingTime;
+    await jobRecord.save();
 
     // Generate thumbnails (optional - can be done async)
     try {
@@ -206,7 +318,7 @@ async function processGenerationJob(job) {
       details: {
         processingTime,
         outputSize: outputImageBuffer.length,
-        aiModel: 'nanobanana'
+        aiModel: 'gemini-2.5-flash-image'
       }
     });
 
@@ -221,6 +333,7 @@ async function processGenerationJob(job) {
       outputImageId: outputImage._id,
       processingTime
     };
+
 
   } catch (error) {
     const processingTime = Date.now() - startTime;
@@ -271,7 +384,7 @@ async function generateThumbnails(outputImage) {
   }
 
   const sharp = await import('sharp');
-  const { uploadBuffer } = await import('../config/storage.js');
+  const { uploadBuffer, generateDownloadUrl } = await import('../config/storage.js');
 
   // Download original image
   const response = await axios.get(outputImage.url, {
@@ -297,7 +410,7 @@ async function generateThumbnails(outputImage) {
       await uploadBuffer(thumbnailBuffer, thumbnailKey, 'image/jpeg');
 
       // Generate URL
-      const thumbnailUrl = await generateDownloadUrl(thumbnailKey, 86400);
+      const thumbnailUrl = generateDownloadUrl(thumbnailKey, 86400);
 
       // Create thumbnail asset
       const thumbnailAsset = new ImageAsset({
@@ -450,7 +563,7 @@ startWorker();
 // Export for testing or other usage
 export {
   processGenerationJob,
-  callNanobananaAPI,
+  callGeminiAPI,
   generateThumbnails,
   initWorker
 };
