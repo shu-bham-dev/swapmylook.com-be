@@ -15,8 +15,8 @@ const logger = createLogger('image-processor');
 
 // Gemini API configuration
 const GEMINI_CONFIG = {
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/models',
-  model: 'gemini-2.5-flash-image:generateContent',
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+  model: 'gemini-2.5-flash-image',
   timeout: 120000, // 2 minutes
   maxRetries: 3
 };
@@ -52,14 +52,14 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer, prompt) {
               }
             },
             {
-              text: prompt || "Create a professional e-commerce fashion photo. Take the outfit from the first image and let the model from the second image wear it. Generate a realistic, full-body shot of the model wearing the outfit, with the lighting and shadows adjusted to match the environment."
+              text: prompt || "Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions."
             }
           ]
         }
       ]
     };
 
-    const apiUrl = `${GEMINI_CONFIG.baseURL}/${GEMINI_CONFIG.model}`;
+    const apiUrl = `${GEMINI_CONFIG.baseURL}/models/${GEMINI_CONFIG.model}:generateContent`;
     
     // Log the API call details
     logger.debug('Making Gemini API call', {
@@ -217,15 +217,30 @@ async function processGenerationJob(job) {
     // Extract the generated image from Gemini response
     console.log('🔍 Checking Gemini response structure...');
     console.log('   Has candidates:', !!geminiResult.candidates);
+    console.log('   Full response keys:', Object.keys(geminiResult));
     
     if (!geminiResult.candidates || !geminiResult.candidates[0]) {
+      console.log('❌ No candidates found in response');
+      console.log('📋 Full response:', JSON.stringify(geminiResult, null, 2));
       throw new Error('Gemini API did not return any candidates');
     }
 
     const candidate = geminiResult.candidates[0];
+    console.log('   Candidate 0 keys:', Object.keys(candidate));
     console.log('   Candidate 0 has content:', !!candidate.content);
+    console.log('   Candidate finish reason:', candidate.finishReason);
+    console.log('   Candidate finish message:', candidate.finishMessage);
+    
+    // Handle safety filter rejections
+    if (candidate.finishReason === 'IMAGE_OTHER' || candidate.finishReason === 'SAFETY') {
+      const errorMessage = candidate.finishMessage || 'Image generation blocked by content safety filters';
+      console.log('❌ Image generation blocked by safety filters:', errorMessage);
+      throw new Error(`Gemini API safety filter: ${errorMessage}`);
+    }
     
     if (!candidate.content || !candidate.content.parts) {
+      console.log('❌ Candidate has no content or parts');
+      console.log('📋 Candidate structure:', JSON.stringify(candidate, null, 2));
       throw new Error('Gemini API candidate has no content or parts');
     }
 

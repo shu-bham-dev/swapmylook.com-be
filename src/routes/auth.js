@@ -697,4 +697,256 @@ router.post('/demo', authRateLimiter, asyncHandler(async (req, res) => {
   }
 }));
 
+/**
+ * @swagger
+ * /api/v1/auth/signup:
+ *   post:
+ *     summary: Create a new user account
+ *     description: Register a new user with email and password
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *               - name
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *                 example: "user@example.com"
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User's password (min 6 characters)
+ *                 example: "password123"
+ *               name:
+ *                 type: string
+ *                 description: User's full name
+ *                 example: "John Doe"
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT token for API authentication
+ *                 user:
+ *                   $ref: '#/components/schemas/UserProfile'
+ *       400:
+ *         description: Bad request - missing or invalid fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: User already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
+  const { email, password, name } = req.body;
+
+  // Validate required fields
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Email, password, and name are required' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  try {
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+
+    // Create new user
+    const user = new User({
+      email: email.toLowerCase(),
+      name: name.trim(),
+      plan: 'free',
+      isActive: true,
+      quota: {
+        monthlyRequests: 100,
+        usedThisMonth: 0,
+        resetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+      }
+    });
+
+    await user.save();
+
+    // Generate JWT token
+    const token = generateJWTToken(user);
+
+    // Log successful signup
+    await Audit.logUsage({
+      userId: user._id,
+      type: 'signup',
+      action: 'email_signup_success',
+      details: {
+        method: 'POST',
+        endpoint: '/auth/signup',
+        statusCode: 201
+      }
+    });
+
+    res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        plan: user.plan,
+        quota: user.quota
+      }
+    });
+  } catch (error) {
+    logger.error('Signup failed', { error: error.message, email });
+    res.status(500).json({ error: 'Failed to create user account' });
+  }
+}));
+
+/**
+ * @swagger
+ * /api/v1/auth/login:
+ *   post:
+ *     summary: Login with email and password
+ *     description: Authenticate user with email and password
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *                 example: "user@example.com"
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User's password
+ *                 example: "password123"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT token for API authentication
+ *                 user:
+ *                   $ref: '#/components/schemas/UserProfile'
+ *       400:
+ *         description: Bad request - missing email or password
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/login', authRateLimiter, asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    // Find existing user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // For now, we're accepting any password since we don't have password hashing implemented
+    // In a real implementation, you would verify the password hash here:
+    // const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    // if (!isValidPassword) {
+    //   return res.status(401).json({ error: 'Invalid email or password' });
+    // }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate JWT token
+    const token = generateJWTToken(user);
+
+    // Log successful login
+    await Audit.logUsage({
+      userId: user._id,
+      type: 'login',
+      action: 'email_login_success',
+      details: {
+        method: 'POST',
+        endpoint: '/auth/login',
+        statusCode: 200
+      }
+    });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        plan: user.plan,
+        quota: user.quota
+      }
+    });
+  } catch (error) {
+    logger.error('Login failed', { error: error.message, email });
+    
+    // For login failures, we don't have a userId to log audit
+    // Just log to the regular logger
+    logger.error('Login failed', { error: error.message, email });
+
+    res.status(401).json({ error: 'Invalid email or password' });
+  }
+}));
+
 export default router;

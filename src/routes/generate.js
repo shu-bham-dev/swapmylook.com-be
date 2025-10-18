@@ -31,8 +31,8 @@ const upload = multer({
 
 // Gemini API configuration
 const GEMINI_CONFIG = {
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/models',
-  model: 'gemini-2.5-flash-image:generateContent',
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+  model: 'gemini-2.5-flash-image',
   timeout: 120000, // 2 minutes
   maxRetries: 3
 };
@@ -88,7 +88,7 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
     };
 
     // Call Gemini API
-    const apiUrl = `${GEMINI_CONFIG.baseURL}/${GEMINI_CONFIG.model}`;
+    const apiUrl = `${GEMINI_CONFIG.baseURL}/models/${GEMINI_CONFIG.model}:generateContent`;
     const response = await axios.post(apiUrl, geminiPayload, {
       headers: {
         'Content-Type': 'application/json',
