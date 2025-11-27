@@ -30,6 +30,8 @@ import assetRoutes from './routes/assets.js';
 import generateRoutes from './routes/generate.js';
 import galleryRoutes from './routes/gallery.js';
 import outfitsRoutes from './routes/outfits.js';
+import settingsRoutes from './routes/settings.js';
+import subscriptionRoutes from './routes/subscription.js';
 import adminRoutes from './routes/admin.js';
 import healthRoutes from './routes/health.js';
 
@@ -87,6 +89,8 @@ app.use('/api/v1/assets', assetRoutes);
 app.use('/api/v1/generate', generateRoutes);
 app.use('/api/v1/gallery', galleryRoutes);
 app.use('/api/v1/outfits', outfitsRoutes);
+app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/health', healthRoutes);
 

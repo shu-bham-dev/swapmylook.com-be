@@ -13,7 +13,7 @@ const imageAssetSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['model', 'outfit', 'output', 'thumbnail'],
+    enum: ['model', 'outfit', 'output', 'thumbnail', 'profile'],
     required: true
   },
   storageKey: {
@@ -36,7 +36,7 @@ const imageAssetSchema = new mongoose.Schema({
   mimeType: {
     type: String,
     required: true,
-    enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/svg+xml', 'image/bmp', 'image/tiff']
   },
   sizeBytes: {
     type: Number,
@@ -113,7 +113,11 @@ imageAssetSchema.virtual('extension').get(function() {
     'image/jpeg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
-    'image/gif': 'gif'
+    'image/gif': 'gif',
+    'image/avif': 'avif',
+    'image/svg+xml': 'svg',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff'
   };
   return mimeToExt[this.mimeType] || 'bin';
 });
@@ -152,6 +156,55 @@ imageAssetSchema.statics.getStorageUsage = async function(userId) {
       $match: {
         userId: new mongoose.Types.ObjectId(userId),
         isDeleted: false
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalBytes: { $sum: '$sizeBytes' },
+        totalFiles: { $sum: 1 },
+        byType: {
+          $push: {
+            type: '$type',
+            size: '$sizeBytes'
+          }
+        }
+      }
+    }
+  ]);
+
+  if (result.length === 0) {
+    return {
+      totalBytes: 0,
+      totalFiles: 0,
+      byType: {}
+    };
+  }
+
+  const byType = {};
+  result[0].byType.forEach(item => {
+    if (!byType[item.type]) {
+      byType[item.type] = { count: 0, size: 0 };
+    }
+    byType[item.type].count += 1;
+    byType[item.type].size += item.size;
+  });
+
+  return {
+    totalBytes: result[0].totalBytes,
+    totalFiles: result[0].totalFiles,
+    byType
+  };
+};
+
+// Static method to get user's outfits storage usage (only model, outfit, output types)
+imageAssetSchema.statics.getOutfitsStorageUsage = async function(userId) {
+  const result = await this.aggregate([
+    {
+      $match: {
+        userId: new mongoose.Types.ObjectId(userId),
+        isDeleted: false,
+        type: { $in: ['model', 'outfit', 'output'] }
       }
     },
     {

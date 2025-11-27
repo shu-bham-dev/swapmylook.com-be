@@ -24,13 +24,49 @@ const userSchema = new mongoose.Schema({
   },
   plan: {
     type: String,
-    enum: ['free', 'pro', 'enterprise'],
+    enum: ['free', 'basic', 'premium', 'pro'],
     default: 'free'
+  },
+  subscription: {
+    status: {
+      type: String,
+      enum: ['active', 'canceled', 'past_due', 'trialing'],
+      default: 'trialing'
+    },
+    trialEndsAt: {
+      type: Date,
+      default: function() {
+        const now = new Date();
+        return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
+      }
+    },
+    trialUsed: {
+      type: Boolean,
+      default: false
+    },
+    currentPeriodEnd: {
+      type: Date
+    },
+    stripeCustomerId: {
+      type: String
+    },
+    stripeSubscriptionId: {
+      type: String
+    }
   },
   quota: {
     monthlyRequests: {
       type: Number,
-      default: 100
+      default: function() {
+        // Set default quota based on plan
+        const planQuotas = {
+          'free': 1, // Only 1 free trial image
+          'basic': 10,
+          'premium': 50,
+          'pro': 100
+        };
+        return planQuotas[this.plan] || 1;
+      }
     },
     usedThisMonth: {
       type: Number,
@@ -52,6 +88,11 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other', 'prefer-not-to-say'],
+    default: 'prefer-not-to-say'
+  },
   preferences: {
     notifications: {
       type: Boolean,
@@ -60,7 +101,31 @@ const userSchema = new mongoose.Schema({
     emailUpdates: {
       type: Boolean,
       default: false
+    },
+    defaultOutfitStyle: {
+      type: String,
+      enum: ['casual', 'formal', 'street', 'business', 'athletic'],
+      default: 'casual'
+    },
+    theme: {
+      type: String,
+      enum: ['light', 'dark', 'auto'],
+      default: 'light'
     }
+  },
+  linkedAccounts: {
+    google: {
+      type: Boolean,
+      default: false
+    },
+    facebook: {
+      type: Boolean,
+      default: false
+    }
+  },
+  profilePicture: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true,
@@ -90,6 +155,21 @@ userSchema.methods.hasAvailableQuota = function() {
     this.quota.resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   }
   
+  // For free users, check trial status
+  if (this.plan === 'free') {
+    // Check if trial period is still active
+    if (now > this.subscription.trialEndsAt) {
+      return false; // Trial expired
+    }
+    
+    // Check if trial has been used
+    if (this.subscription.trialUsed) {
+      return false; // Trial already used
+    }
+    
+    return this.quota.usedThisMonth < this.quota.monthlyRequests;
+  }
+  
   return this.quota.usedThisMonth < this.quota.monthlyRequests;
 };
 
@@ -103,8 +183,46 @@ userSchema.methods.incrementUsage = function() {
     this.quota.resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   }
   
+  // For free users, mark trial as used after first usage
+  if (this.plan === 'free' && !this.subscription.trialUsed) {
+    this.subscription.trialUsed = true;
+    this.subscription.status = 'canceled'; // Trial ends after first use
+  }
+  
   this.quota.usedThisMonth += 1;
   return this.save();
+};
+
+// Method to check trial status
+userSchema.methods.getTrialStatus = function() {
+  const now = new Date();
+  const trialEndsAt = this.subscription.trialEndsAt;
+  const trialUsed = this.subscription.trialUsed;
+  
+  return {
+    hasTrialRemaining: !trialUsed && now <= trialEndsAt,
+    trialUsed: trialUsed,
+    trialEndsAt: trialEndsAt,
+    daysRemaining: Math.ceil((trialEndsAt - now) / (1000 * 60 * 60 * 24))
+  };
+};
+
+// Method to get subscription details
+userSchema.methods.getSubscriptionDetails = function() {
+  const trialStatus = this.getTrialStatus();
+  
+  return {
+    plan: this.plan,
+    status: this.subscription.status,
+    trialStatus: trialStatus,
+    usage: {
+      used: this.quota.usedThisMonth,
+      limit: this.quota.monthlyRequests,
+      remaining: Math.max(0, this.quota.monthlyRequests - this.quota.usedThisMonth)
+    },
+    resetDate: this.quota.resetDate,
+    currentPeriodEnd: this.subscription.currentPeriodEnd
+  };
 };
 
 // Static method to find or create user from Google profile

@@ -26,7 +26,7 @@ const upload = multer({
     fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp')
+    const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp,image/gif,image/avif,image/svg+xml,image/bmp,image/tiff')
       .split(',')
       .map(type => type.trim());
 
@@ -438,10 +438,12 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
   const downloadUrl = await generateDownloadUrl(storageKey, 3600);
 
   // Create image asset record
+  // For profile pictures (purpose 'other'), use type 'profile'
+  const assetType = purpose === 'other' ? 'profile' : purpose;
   const imageAsset = new ImageAsset({
     userId: req.user._id,
     projectId: projectId || null,
-    type: purpose,
+    type: assetType,
     storageKey,
     url: downloadUrl,
     width,
@@ -699,7 +701,7 @@ router.post('/thumbnail', requireAuth(), uploadRateLimiter, asyncHandler(async (
  */
 router.get('/limits', (req, res) => {
   const maxSize = parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024;
-  const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp')
+  const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp,image/gif,image/avif,image/svg+xml,image/bmp,image/tiff')
     .split(',')
     .map(type => type.trim());
 

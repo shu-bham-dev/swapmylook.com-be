@@ -24,10 +24,13 @@ const GEMINI_CONFIG = {
 /**
  * Call Gemini API for image generation
  */
-async function callGeminiAPI(modelImageBuffer, outfitImageBuffer, prompt) {
+async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error('Gemini API key not configured');
   }
+
+  // Use hardcoded prompt from environment variable
+  const prompt = process.env.GENERATION_PROMPT || "Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions.";
 
   try {
     // Convert images to base64
@@ -52,7 +55,7 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer, prompt) {
               }
             },
             {
-              text: prompt || "Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions."
+              text: prompt
             }
           ]
         }
@@ -210,8 +213,7 @@ async function processGenerationJob(job) {
     // Call Gemini API for generation
     const geminiResult = await callGeminiAPI(
       modelImageBuffer,
-      outfitImageBuffer,
-      jobRecord.prompt || "Generate a realistic outfit on the model person"
+      outfitImageBuffer
     );
 
     // Extract the generated image from Gemini response

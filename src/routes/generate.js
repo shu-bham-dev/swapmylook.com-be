@@ -20,7 +20,7 @@ const upload = multer({
     fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp').split(',');
+    const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/webp,image/gif,image/avif,image/svg+xml,image/bmp,image/tiff').split(',');
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -56,9 +56,9 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
   }
 
   // Validate file type
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/svg+xml', 'image/bmp', 'image/tiff'];
   if (!allowedTypes.includes(imageFile.mimetype)) {
-    throw new ValidationError(`File type ${imageFile.mimetype} is not supported. Please use JPEG, PNG, or WebP.`);
+    throw new ValidationError(`File type ${imageFile.mimetype} is not supported. Please use JPEG, PNG, WebP, GIF, AVIF, SVG, BMP, or TIFF.`);
   }
 
   // Check if Gemini API key is configured
@@ -86,7 +86,7 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
         }
       ]
     };
-
+    console.log(geminiPayload,"geminiPayload<<<<<<");
     // Call Gemini API
     const apiUrl = `${GEMINI_CONFIG.baseURL}/models/${GEMINI_CONFIG.model}:generateContent`;
     const response = await axios.post(apiUrl, geminiPayload, {
@@ -215,12 +215,15 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
  * @access  Private
  */
 router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(async (req, res) => {
-  const { modelImageId, outfitImageId, prompt, options, callbackUrl, projectId } = req.body;
+  const { modelImageId, outfitImageId, options, callbackUrl, projectId } = req.body;
 
   // Validate required fields
   if (!modelImageId || !outfitImageId) {
     throw new ValidationError('modelImageId and outfitImageId are required');
   }
+
+  // Use hardcoded prompt from environment variable
+  const prompt = process.env.GENERATION_PROMPT || "Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions.";
 
   // Verify that images belong to the user and exist
   const [modelImage, outfitImage] = await Promise.all([
@@ -250,7 +253,7 @@ router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(
     userId: req.user._id,
     inputModelImageId: modelImageId,
     inputOutfitImageId: outfitImageId,
-    prompt: prompt || '',
+    prompt: prompt, // Use hardcoded prompt from environment variable
     options: {
       strength: options?.strength || 0.9,
       preserveFace: options?.preserveFace !== false,
@@ -284,8 +287,9 @@ router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(
     details: {
       modelImageId,
       outfitImageId,
-      promptLength: prompt?.length || 0,
-      options: jobRecord.options
+      promptLength: prompt.length,
+      options: jobRecord.options,
+      promptSource: 'environment_variable'
     }
   });
 

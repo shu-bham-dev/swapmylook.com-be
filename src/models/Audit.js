@@ -8,7 +8,7 @@ const auditSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['generation', 'download', 'upload', 'login', 'signup', 'quota_adjustment', 'subscription_change', 'outfits'],
+    enum: ['generation', 'download', 'upload', 'login', 'signup', 'quota_adjustment', 'subscription_change', 'outfits', 'settings'],
     required: true
   },
   action: {

@@ -145,9 +145,12 @@ router.get('/', requireAuth(), asyncHandler(async (req, res) => {
     isDeleted: false
   };
 
-  // Filter by type
+  // Filter by type - outfits API should only return model, outfit, and output types
   if (type !== 'all') {
     filter.type = type;
+  } else {
+    // When type=all, exclude profile and thumbnail types
+    filter.type = { $in: ['model', 'outfit', 'output'] };
   }
 
   // Filter by favorite
@@ -259,12 +262,13 @@ router.get('/', requireAuth(), asyncHandler(async (req, res) => {
 router.get('/stats', requireAuth(), asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
-  // Get counts by type
+  // Get counts by type - outfits API should only count model, outfit, and output types
   const countsByType = await ImageAsset.aggregate([
     {
       $match: {
         userId: req.user._id,
-        isDeleted: false
+        isDeleted: false,
+        type: { $in: ['model', 'outfit', 'output'] }
       }
     },
     {
@@ -275,14 +279,15 @@ router.get('/stats', requireAuth(), asyncHandler(async (req, res) => {
     }
   ]);
 
-  // Get storage usage
-  const storageUsage = await ImageAsset.getStorageUsage(userId);
+  // Get storage usage - outfits API should only count model, outfit, and output types
+  const storageUsage = await ImageAsset.getOutfitsStorageUsage(userId);
 
-  // Get favorites count
+  // Get favorites count - outfits API should only count model, outfit, and output types
   const favoritesCount = await ImageAsset.countDocuments({
     userId: req.user._id,
     isDeleted: false,
-    favorite: true
+    favorite: true,
+    type: { $in: ['model', 'outfit', 'output'] }
   });
 
   // Format counts by type
