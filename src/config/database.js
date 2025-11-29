@@ -64,32 +64,37 @@ export async function connectDB() {
   const mongoUri = process.env.MONGO_URI;
   
   if (!mongoUri) {
+    console.error('❌ MONGO_URI environment variable is required');
     throw new Error('MONGO_URI environment variable is required');
   }
 
   try {
     if (isConnected) {
-      logger.info('MongoDB already connected');
+      console.log('ℹ️ MongoDB already connected');
       return;
     }
 
-    logger.info('Connecting to MongoDB...');
+    console.log('🔗 Connecting to MongoDB...');
+    console.log(`📝 MongoDB URI: ${mongoUri.substring(0, 30)}...`);
     
     await mongoose.connect(mongoUri, connectionOptions);
     
     // Verify connection
+    console.log('✅ MongoDB connected, verifying with ping...');
     await mongoose.connection.db.admin().ping();
-    logger.info('MongoDB ping successful');
+    console.log('✅ MongoDB ping successful');
     
   } catch (error) {
     connectionRetries++;
     
     if (connectionRetries >= MAX_RETRIES) {
-      logger.error(`Failed to connect to MongoDB after ${MAX_RETRIES} attempts:`, error);
+      console.error(`❌ Failed to connect to MongoDB after ${MAX_RETRIES} attempts:`, error);
+      console.error('Stack trace:', error.stack);
       throw new Error(`MongoDB connection failed after ${MAX_RETRIES} retries`);
     }
     
-    logger.warn(`MongoDB connection attempt ${connectionRetries} failed, retrying in 5 seconds...`);
+    console.warn(`⚠️ MongoDB connection attempt ${connectionRetries} failed, retrying in 5 seconds...`);
+    console.error('Error details:', error.message);
     
     // Wait before retrying with exponential backoff
     const backoffTime = Math.pow(2, connectionRetries) * 1000;
