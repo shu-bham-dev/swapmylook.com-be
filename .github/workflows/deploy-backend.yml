@@ -44,7 +44,7 @@ jobs:
           port: ${{ secrets.BACKEND_FTP_PORT || env.BACKEND_FTP_PORT }}
           protocol: ftp
           local-dir: ./
-          server-dir: ${{ secrets.BACKEND_SERVER_DIR }}
+          server-dir: ${{ secrets.BACKEND_SERVER_DIR }}/
           exclude: |
             **/.git*
             **/.github*
