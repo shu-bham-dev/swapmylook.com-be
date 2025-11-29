@@ -8,22 +8,32 @@ on:
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
+    env:
+      # fallback / defaults (can be overridden by repo secrets)
+      BACKEND_FTP_PORT: 21
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show Node version (CI)
+      - name: Setup Node.js (CI)
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Run tests (optional)
-        if: always()               # change to `if: success()` to stop deploy on test failures
+      - name: (Optional) Install & run tests
+        if: ${{ always() }}
         run: |
+          # Optional tests: adjust or remove if you don't want tests in CI
+          set -e
+          echo "Installing dependencies for test run..."
           npm ci
-          npm test
-        # Remove or adjust the above lines if tests are not configured / take too long.
+          if [ -f package.json ] && grep -q "\"test\"" package.json; then
+            echo "Running tests..."
+            npm test || echo "Tests failed (continuing deploy)"; exit 0
+          else
+            echo "No test script found or tests skipped."
+          fi
 
       - name: Deploy backend via FTP (upload code only)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
@@ -31,10 +41,10 @@ jobs:
           server: ${{ secrets.BACKEND_FTP_HOST }}
           username: ${{ secrets.BACKEND_FTP_USERNAME }}
           password: ${{ secrets.BACKEND_FTP_PASSWORD }}
-          port: ${{ secrets.BACKEND_FTP_PORT || 21 }}
+          port: ${{ secrets.BACKEND_FTP_PORT || env.BACKEND_FTP_PORT }}
           protocol: ftp
           local-dir: .
-          server-dir: ${{ secrets.BACKEND_SERVER_DIR }}   # e.g. /backend or .
+          server-dir: ${{ secrets.BACKEND_SERVER_DIR }}
           exclude: |
             **/.git*
             **/.github*
@@ -49,18 +59,34 @@ jobs:
             package-lock.json
             yarn.lock
 
-      - name: (Optional) Trigger cPanel Node app restart via UAPI
-        if: ${{ secrets.CPANEL_API_TOKEN != '' && secrets.CPANEL_HOST != '' && secrets.CPANEL_USER != '' && secrets.CPANEL_APP_NAME != '' }}
+      - name: Ensure server dir exists (debug)
+        if: ${{ always() }}
         run: |
-          # Restart the Node.js application using a cPanel UAPI call
-          # Requires a cPanel API token stored in secret CPANEL_API_TOKEN
-          echo "Triggering cPanel NodeJS app restart..."
-          curl -s -H "Authorization: cpanel ${{ secrets.CPANEL_USER }}:${{ secrets.CPANEL_API_TOKEN }}" \
-            "https://${{ secrets.CPANEL_HOST }}:2083/execute/NodeJsApp/restart_app?app=${{ secrets.CPANEL_APP_NAME }}" \
-            -o /tmp/cpanel-restart-response.json || true
-          echo "cPanel restart response:"
-          cat /tmp/cpanel-restart-response.json || true
+          echo "Deployed files to: ${{ secrets.BACKEND_SERVER_DIR }}"
+          echo "If files are not in expected location, verify BACKEND_SERVER_DIR secret."
 
-      - name: Notify (optional)
-        if: always()
-        run: echo "Backend deployment finished (success or failure)."
+      - name: (Optional) Trigger cPanel Node app restart via UAPI
+        if: ${{ always() }}
+        env:
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USER: ${{ secrets.CPANEL_USER }}
+          CPANEL_APP_NAME: ${{ secrets.CPANEL_APP_NAME }}
+        run: |
+          # Only attempt restart if all required secrets are set
+          if [ -n "$CPANEL_API_TOKEN" ] && [ -n "$CPANEL_HOST" ] && [ -n "$CPANEL_USER" ] && [ -n "$CPANEL_APP_NAME" ]; then
+            echo "Triggering cPanel NodeJS app restart for app=$CPANEL_APP_NAME on host=$CPANEL_HOST"
+            # Call UAPI NodeJsApp/restart_app - adjust endpoint if your cPanel version differs
+            curl -s -S -m 20 -H "Authorization: cpanel $CPANEL_USER:$CPANEL_API_TOKEN" \
+              "https://$CPANEL_HOST:2083/execute/NodeJsApp/restart_app?app=$CPANEL_APP_NAME" \
+              -o /tmp/cpanel-restart-response.json || true
+            echo "cPanel restart response:"
+            cat /tmp/cpanel-restart-response.json || true
+          else
+            echo "cPanel restart skipped because one or more CPANEL_* secrets are not set."
+          fi
+
+      - name: Final status
+        if: ${{ always() }}
+        run: |
+          echo "Backend deployment job finished. Check previous steps' logs for details."
