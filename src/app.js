@@ -100,15 +100,27 @@ app.use(errorHandler);
 // Initialize application
 async function initializeApp() {
   try {
+    console.log('🚀 Starting application initialization...');
+    console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🔧 PORT: ${process.env.PORT}`);
+    
     // Connect to databases
+    console.log('🔗 Connecting to MongoDB...');
     await connectDB();
+    console.log('✅ MongoDB connected successfully');
+    
+    console.log('🔗 Connecting to Redis...');
     await connectRedis();
+    console.log('✅ Redis connected successfully');
 
     // Initialize queues
+    console.log('📋 Initializing queues...');
     await initQueues();
+    console.log('✅ Queues initialized');
 
     // Setup Bull Board dashboard
     try {
+      console.log('📊 Setting up Bull Board dashboard...');
       const serverAdapter = new ExpressAdapter();
       serverAdapter.setBasePath('/admin/queues');
 
@@ -122,7 +134,7 @@ async function initializeApp() {
       // Bull Board dashboard - register route before 404 handler
       app.use('/admin/queues', serverAdapter.getRouter());
       
-      console.log('📊 Bull Board dashboard available at /admin/queues');
+      console.log('✅ Bull Board dashboard available at /admin/queues');
     } catch (bullBoardError) {
       console.warn('⚠️ Bull Board setup failed, continuing without dashboard:', bullBoardError.message);
     }
@@ -136,9 +148,12 @@ async function initializeApp() {
     });
 
     // Initialize rate limiters
+    console.log('⏱️ Initializing rate limiters...');
     await initRateLimiters();
+    console.log('✅ Rate limiters initialized');
 
     // Start server
+    console.log(`🌐 Starting server on 0.0.0.0:${PORT}...`);
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV}`);
@@ -146,6 +161,7 @@ async function initializeApp() {
     });
   } catch (error) {
     console.error('❌ Failed to initialize application:', error);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 }
