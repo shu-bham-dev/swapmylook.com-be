@@ -244,6 +244,12 @@ export function createRateLimiter(endpoint, options = {}) {
   
   return async (req, res, next) => {
     try {
+      if (!rateLimitersInitialized) {
+        // Rate limiters not ready yet, allow the request
+        next();
+        return;
+      }
+      
       const limiter = getRateLimiter(endpoint);
       const key = keyGenerator(req);
       const rateLimitRes = await limiter.consume(key);
@@ -291,23 +297,29 @@ export function createRateLimiter(endpoint, options = {}) {
 
 // Initialize rate limiters and mark as ready
 export async function initRateLimiters() {
-  const redisClient = getRedisClient();
-  
-  Object.keys(rateLimitConfigs).forEach(key => {
-    const config = rateLimitConfigs[key];
+  try {
+    const redisClient = getRedisClient();
     
-    rateLimiters[key] = new RateLimiterRedis({
-      storeClient: redisClient,
-      keyPrefix: `rate_limit:${key}`,
-      points: config.points,
-      duration: config.duration,
-      blockDuration: config.blockDuration,
-      execEvenly: false
+    Object.keys(rateLimitConfigs).forEach(key => {
+      const config = rateLimitConfigs[key];
+      
+      rateLimiters[key] = new RateLimiterRedis({
+        storeClient: redisClient,
+        keyPrefix: `rate_limit:${key}`,
+        points: config.points,
+        duration: config.duration,
+        blockDuration: config.blockDuration,
+        execEvenly: false
+      });
     });
-  });
-  
-  rateLimitersInitialized = true;
-  logger.info('Rate limiters initialized');
+    
+    rateLimitersInitialized = true;
+    logger.info('Rate limiters initialized');
+  } catch (error) {
+    logger.warn('Failed to initialize rate limiters, continuing without rate limiting:', error.message);
+    // Continue without rate limiting rather than crashing the app
+    rateLimitersInitialized = false;
+  }
 }
 
 // Pre-configured rate limiters for common endpoints
