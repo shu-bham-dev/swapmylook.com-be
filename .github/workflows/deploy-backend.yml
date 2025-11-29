@@ -43,7 +43,7 @@ jobs:
           password: ${{ secrets.BACKEND_FTP_PASSWORD }}
           port: ${{ secrets.BACKEND_FTP_PORT || env.BACKEND_FTP_PORT }}
           protocol: ftp
-          local-dir: .
+          local-dir: ./
           server-dir: ${{ secrets.BACKEND_SERVER_DIR }}
           exclude: |
             **/.git*
