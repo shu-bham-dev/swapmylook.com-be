@@ -1,0 +1,66 @@
+name: Deploy backend to cPanel
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show Node version (CI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests (optional)
+        if: always()               # change to `if: success()` to stop deploy on test failures
+        run: |
+          npm ci
+          npm test
+        # Remove or adjust the above lines if tests are not configured / take too long.
+
+      - name: Deploy backend via FTP (upload code only)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
+        with:
+          server: ${{ secrets.BACKEND_FTP_HOST }}
+          username: ${{ secrets.BACKEND_FTP_USERNAME }}
+          password: ${{ secrets.BACKEND_FTP_PASSWORD }}
+          port: ${{ secrets.BACKEND_FTP_PORT || 21 }}
+          protocol: ftp
+          local-dir: .
+          server-dir: ${{ secrets.BACKEND_SERVER_DIR }}   # e.g. /backend or .
+          exclude: |
+            **/.git*
+            **/.github*
+            node_modules/**
+            tests/**
+            coverage/**
+            .env*
+            .env.* 
+            README.md
+            .vscode/**
+            .github/**
+            package-lock.json
+            yarn.lock
+
+      - name: (Optional) Trigger cPanel Node app restart via UAPI
+        if: ${{ secrets.CPANEL_API_TOKEN != '' && secrets.CPANEL_HOST != '' && secrets.CPANEL_USER != '' && secrets.CPANEL_APP_NAME != '' }}
+        run: |
+          # Restart the Node.js application using a cPanel UAPI call
+          # Requires a cPanel API token stored in secret CPANEL_API_TOKEN
+          echo "Triggering cPanel NodeJS app restart..."
+          curl -s -H "Authorization: cpanel ${{ secrets.CPANEL_USER }}:${{ secrets.CPANEL_API_TOKEN }}" \
+            "https://${{ secrets.CPANEL_HOST }}:2083/execute/NodeJsApp/restart_app?app=${{ secrets.CPANEL_APP_NAME }}" \
+            -o /tmp/cpanel-restart-response.json || true
+          echo "cPanel restart response:"
+          cat /tmp/cpanel-restart-response.json || true
+
+      - name: Notify (optional)
+        if: always()
+        run: echo "Backend deployment finished (success or failure)."
