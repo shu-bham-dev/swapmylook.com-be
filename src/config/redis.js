@@ -41,6 +41,11 @@ let isConnected = false;
 function createClient() {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
   
+  // Handle Railway Redis environment variable
+  if (process.env.RAILWAY_REDIS_URL) {
+    return new Redis(process.env.RAILWAY_REDIS_URL, redisOptions);
+  }
+  
   if (redisUrl.startsWith('rediss://')) {
     // SSL connection
     return new Redis(redisUrl, {
@@ -62,6 +67,13 @@ export async function connectRedis() {
   try {
     if (isConnected) {
       logger.info('Redis already connected');
+      return;
+    }
+
+    // Check if Redis URL is available
+    const redisUrl = process.env.REDIS_URL || process.env.RAILWAY_REDIS_URL;
+    if (!redisUrl) {
+      logger.warn('Redis URL not found in environment variables. Redis functionality will be disabled.');
       return;
     }
 
@@ -98,12 +110,19 @@ export async function connectRedis() {
       logger.info('Redis reconnecting...');
     });
     
-    // Wait for connection
-    await redisClient.ping();
+    // Wait for connection with timeout
+    await Promise.race([
+      redisClient.ping(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Redis connection timeout')), 10000)
+      )
+    ]);
     
   } catch (error) {
     logger.error('Failed to connect to Redis:', error);
-    throw new Error(`Redis connection failed: ${error.message}`);
+    logger.warn('Redis connection failed. Application will continue without Redis functionality.');
+    // Don't throw error - allow application to continue without Redis
+    isConnected = false;
   }
 }
 

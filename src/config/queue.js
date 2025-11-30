@@ -11,31 +11,37 @@ const queues = new Map();
  * Initialize job queues
  */
 export function initQueues() {
-  const redisClient = getRedisClient();
-  
-  // Main generation queue
-  const generateQueue = new BullQueue('generate', {
-    connection: redisClient,
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 30000 // 30 seconds
-      },
-      removeOnComplete: {
-        age: 24 * 3600, // keep completed jobs for 24 hours
-        count: 1000 // keep up to 1000 completed jobs
-      },
-      removeOnFail: {
-        age: 7 * 24 * 3600 // keep failed jobs for 7 days
+  try {
+    const redisClient = getRedisClient();
+    
+    // Main generation queue
+    const generateQueue = new BullQueue('generate', {
+      connection: redisClient,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 30000 // 30 seconds
+        },
+        removeOnComplete: {
+          age: 24 * 3600, // keep completed jobs for 24 hours
+          count: 1000 // keep up to 1000 completed jobs
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600 // keep failed jobs for 7 days
+        }
       }
-    }
-  });
+    });
 
-  queues.set('generate', generateQueue);
+    queues.set('generate', generateQueue);
 
-  logger.info('Job queues initialized');
-  return queues;
+    logger.info('Job queues initialized');
+    return queues;
+  } catch (error) {
+    logger.warn('Queue initialization failed (Redis not available):', error.message);
+    // Return empty queues map to prevent crashes
+    return queues;
+  }
 }
 
 /**
@@ -46,7 +52,24 @@ export function initQueues() {
 export function getQueue(name = 'generate') {
   const queue = queues.get(name);
   if (!queue) {
-    throw new Error(`Queue ${name} not initialized`);
+    // Return a mock queue that doesn't do anything
+    logger.warn(`Queue ${name} not initialized (Redis unavailable)`);
+    return {
+      add: () => Promise.reject(new Error('Redis unavailable - queues disabled')),
+      getJob: () => Promise.reject(new Error('Redis unavailable - queues disabled')),
+      getWaitingCount: () => Promise.resolve(0),
+      getActiveCount: () => Promise.resolve(0),
+      getCompletedCount: () => Promise.resolve(0),
+      getFailedCount: () => Promise.resolve(0),
+      getDelayedCount: () => Promise.resolve(0),
+      getPausedCount: () => Promise.resolve(0),
+      clean: () => Promise.resolve([]),
+      pause: () => Promise.resolve(),
+      resume: () => Promise.resolve(),
+      obliterate: () => Promise.resolve(),
+      getJobCounts: () => Promise.resolve({}),
+      close: () => Promise.resolve()
+    };
   }
   return queue;
 }
@@ -192,49 +215,58 @@ export async function getJobCounts(queueName = 'generate') {
  * @returns {Worker} - Worker instance
  */
 export function createWorker(queueName, processor, options = {}) {
-  const redisClient = getRedisClient();
-  
-  const worker = new Worker(queueName, processor, {
-    connection: redisClient,
-    concurrency: options.concurrency || 1,
-    limiter: options.limiter,
-    ...options
-  });
-
-  worker.on('completed', (job, result) => {
-    logger.info('Job completed', {
-      queue: queueName,
-      jobId: job.id,
-      result: typeof result === 'object' ? JSON.stringify(result) : result
+  try {
+    const redisClient = getRedisClient();
+    
+    const worker = new Worker(queueName, processor, {
+      connection: redisClient,
+      concurrency: options.concurrency || 1,
+      limiter: options.limiter,
+      ...options
     });
-  });
 
-  worker.on('failed', (job, error) => {
-    logger.error('Job failed', {
-      queue: queueName,
-      jobId: job?.id,
-      error: error.message,
-      stack: error.stack
+    worker.on('completed', (job, result) => {
+      logger.info('Job completed', {
+        queue: queueName,
+        jobId: job.id,
+        result: typeof result === 'object' ? JSON.stringify(result) : result
+      });
     });
-  });
 
-  worker.on('error', (error) => {
-    logger.error('Worker error', {
-      queue: queueName,
-      error: error.message,
-      stack: error.stack
+    worker.on('failed', (job, error) => {
+      logger.error('Job failed', {
+        queue: queueName,
+        jobId: job?.id,
+        error: error.message,
+        stack: error.stack
+      });
     });
-  });
 
-  worker.on('stalled', (jobId) => {
-    logger.warn('Job stalled', {
-      queue: queueName,
-      jobId
+    worker.on('error', (error) => {
+      logger.error('Worker error', {
+        queue: queueName,
+        error: error.message,
+        stack: error.stack
+      });
     });
-  });
 
-  logger.info('Worker created', { queue: queueName });
-  return worker;
+    worker.on('stalled', (jobId) => {
+      logger.warn('Job stalled', {
+        queue: queueName,
+        jobId
+      });
+    });
+
+    logger.info('Worker created', { queue: queueName });
+    return worker;
+  } catch (error) {
+    logger.warn('Worker creation failed (Redis unavailable):', error.message);
+    // Return a mock worker that doesn't do anything
+    return {
+      on: () => {},
+      close: () => Promise.resolve()
+    };
+  }
 }
 
 /**

@@ -121,16 +121,25 @@ async function initializeApp() {
     await connectDB();
     console.log('✅ MongoDB connected successfully');
     
+    // Connect to Redis (with graceful failure handling)
     console.log('🔗 Connecting to Redis...');
-    await connectRedis();
-    console.log('✅ Redis connected successfully');
+    try {
+      await connectRedis();
+      console.log('✅ Redis connected successfully');
+    } catch (redisError) {
+      console.warn('⚠️ Redis connection failed, continuing without Redis:', redisError.message);
+    }
 
-    // Initialize queues
-    console.log('📋 Initializing queues...');
-    await initQueues();
-    console.log('✅ Queues initialized');
+    // Initialize queues (only if Redis is available)
+    try {
+      console.log('📋 Initializing queues...');
+      await initQueues();
+      console.log('✅ Queues initialized');
+    } catch (queueError) {
+      console.warn('⚠️ Queue initialization failed, continuing without queues:', queueError.message);
+    }
 
-    // Setup Bull Board dashboard
+    // Setup Bull Board dashboard (only if queues are available)
     try {
       console.log('📊 Setting up Bull Board dashboard...');
       const serverAdapter = new ExpressAdapter();
@@ -159,10 +168,14 @@ async function initializeApp() {
       });
     });
 
-    // Initialize rate limiters
-    console.log('⏱️ Initializing rate limiters...');
-    await initRateLimiters();
-    console.log('✅ Rate limiters initialized');
+    // Initialize rate limiters (with graceful failure handling)
+    try {
+      console.log('⏱️ Initializing rate limiters...');
+      await initRateLimiters();
+      console.log('✅ Rate limiters initialized');
+    } catch (rateLimitError) {
+      console.warn('⚠️ Rate limiter initialization failed, continuing without rate limiting:', rateLimitError.message);
+    }
 
     // Start server
     console.log(`🌐 Starting server on 0.0.0.0:${PORT}...`);
@@ -170,6 +183,7 @@ async function initializeApp() {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV}`);
       console.log(`🔗 API Base URL: http://localhost:${PORT}/api/v1`);
+      console.log(`🔴 Redis Status: ${process.env.REDIS_URL || process.env.RAILWAY_REDIS_URL ? 'Configured' : 'Not Configured'}`);
     });
   } catch (error) {
     console.error('❌ Failed to initialize application:', error);
