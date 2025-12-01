@@ -9,7 +9,8 @@
     "dev": "nodemon src/app.js",
     "test": "jest",
     "lint": "eslint src/",
-    "worker": "node src/workers/imageProcessor.js"
+    "worker": "node src/workers/worker.js",
+    "worker:dev": "nodemon src/workers/worker.js"
   },
   "keywords": [
     "ai",

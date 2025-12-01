@@ -1,0 +1,36 @@
+# Worker Environment Variables for Railway.com Deployment
+# Copy this file to Railway environment variables
+
+# Database
+MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/swapmylook?retryWrites=true&w=majority
+
+# Redis (Required for BullMQ queue)
+REDIS_URL=redis://username:password@host:port
+
+# AI Services
+GEMINI_API_KEY=your_gemini_api_key_here
+GENERATION_PROMPT=Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions.
+
+# Storage
+CLOUDINARY_URL=cloudinary://api_key:api_secret@cloud_name
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+STORAGE_PROVIDER=cloudinary
+
+# Thumbnail Generation (optional)
+THUMBNAIL_SIZES=512,256
+
+# Worker Configuration
+WORKER_CONCURRENCY=2
+NODE_ENV=production
+
+# Backend URL (for API calls if needed)
+BACKEND_URL=https://your-backend-service.up.railway.app
+
+# Logging
+LOG_LEVEL=info
+
+# Health Check Port (Railway automatically sets PORT environment variable)
+# Worker will use this port for health check endpoint
+# Do NOT set this manually - Railway provides it automatically
