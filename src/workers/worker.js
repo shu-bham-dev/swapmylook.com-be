@@ -59,8 +59,8 @@ function setupHealthCheck() {
   });
 
   // Railway automatically provides PORT environment variable
-  // Use 3001 as fallback for local development
-  const PORT = process.env.PORT || 3001;
+  // Use WORKER_PORT if defined, otherwise PORT, with 3001 as fallback for local development
+  const PORT = process.env.WORKER_PORT || process.env.PORT || 3001;
   server.listen(PORT, () => {
     logger.info(`Worker health check server running on port ${PORT}`);
     logger.info(`Health check endpoint: http://localhost:${PORT}/health`);
@@ -140,7 +140,7 @@ async function startWorker() {
 
     logger.info('✅ Image processor worker started successfully', {
       concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2,
-      port: process.env.PORT || 3001
+      port: process.env.WORKER_PORT || process.env.PORT || 3001
     });
 
     return { worker, healthServer };
