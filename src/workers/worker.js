@@ -4,6 +4,7 @@ import { connectRedis, getRedisClient } from '../config/redis.js';
 import { initQueues } from '../config/queue.js';
 import { Worker } from 'bullmq';
 import { processGenerationJob } from './imageProcessor.js';
+import http from 'http';
 
 const logger = createLogger('worker-main');
 
@@ -40,8 +41,6 @@ function setupGracefulShutdown(worker) {
 
 // Health check endpoint for Railway
 function setupHealthCheck() {
-  const http = require('http');
-  
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });

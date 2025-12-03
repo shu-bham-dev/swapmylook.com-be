@@ -7,6 +7,7 @@ import JobRecord from '../models/JobRecord.js';
 import Project from '../models/Project.js';
 import Audit from '../models/Audit.js';
 import { createLogger } from '../utils/logger.js';
+import crypto from 'crypto';
 
 /**
  * @swagger
@@ -502,7 +503,7 @@ router.post('/:id/share', requireAuth(), asyncHandler(async (req, res) => {
   const shareUrl = await generateDownloadUrl(image.storageKey, parseInt(expiresIn));
 
   // Create share token (you could store this in DB for revocation)
-  const shareToken = require('crypto').randomBytes(16).toString('hex');
+  const shareToken = crypto.randomBytes(16).toString('hex');
 
   // Log sharing action
   await Audit.logUsage({

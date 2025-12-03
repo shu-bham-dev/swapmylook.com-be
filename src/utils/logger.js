@@ -1,5 +1,7 @@
 import winston from 'winston';
 import 'winston-daily-rotate-file';
+import fs from 'fs';
+import path from 'path';
 
 const { combine, timestamp, printf, colorize, errors } = winston.format;
 
@@ -101,8 +103,6 @@ function createLogger(moduleName = 'app') {
 
   // Create logs directory if it doesn't exist
   if (process.env.NODE_ENV === 'production') {
-    const fs = require('fs');
-    const path = require('path');
     const logsDir = path.join(process.cwd(), 'logs');
     
     if (!fs.existsSync(logsDir)) {
