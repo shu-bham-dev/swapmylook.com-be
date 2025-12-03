@@ -61,10 +61,6 @@ function setupHealthCheck() {
   // Railway automatically provides PORT environment variable
   // Use WORKER_PORT if defined, otherwise PORT, with 3001 as fallback for local development
   const PORT = process.env.WORKER_PORT || process.env.PORT || 3001;
-  logger.info(`Starting health check server on port ${PORT} (WORKER_PORT=${process.env.WORKER_PORT}, PORT=${process.env.PORT})`);
-  server.on('error', (err) => {
-    logger.error(`Health check server error: ${err.message}`);
-  });
   server.listen(PORT, () => {
     logger.info(`Worker health check server running on port ${PORT}`);
     logger.info(`Health check endpoint: http://localhost:${PORT}/health`);
