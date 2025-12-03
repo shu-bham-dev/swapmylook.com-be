@@ -5,7 +5,7 @@ const logger = createLogger('redis');
 
 // Redis connection options
 const redisOptions = {
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: null,
   enableReadyCheck: true,
   connectTimeout: 10000,
   lazyConnect: true,
