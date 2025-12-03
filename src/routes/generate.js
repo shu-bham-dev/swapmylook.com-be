@@ -277,6 +277,15 @@ router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(
     attempts: jobRecord.maxAttempts
   });
 
+  logger.info('Job added to generate queue', {
+    jobId: jobRecord._id,
+    userId: req.user._id,
+    modelImageId,
+    outfitImageId,
+    priority: jobRecord.priority,
+    attempts: jobRecord.maxAttempts
+  });
+
   // Log job creation
   await Audit.logUsage({
     userId: req.user._id,

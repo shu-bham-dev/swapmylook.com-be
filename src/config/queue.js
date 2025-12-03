@@ -4,6 +4,9 @@ import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('queue');
 
+// Metrics logging interval
+let metricsInterval = null;
+
 // Queue instances
 const queues = new Map();
 
@@ -34,6 +37,23 @@ export function initQueues() {
     });
 
     queues.set('generate', generateQueue);
+
+    // Add event listeners for queue events
+    generateQueue.on('waiting', (jobId) => {
+      logger.debug('Job waiting', { queue: 'generate', jobId });
+    });
+
+    generateQueue.on('delayed', (jobId) => {
+      logger.debug('Job delayed', { queue: 'generate', jobId });
+    });
+
+    generateQueue.on('active', (job, jobPromise) => {
+      logger.debug('Job active', { queue: 'generate', jobId: job.id });
+    });
+
+    generateQueue.on('progress', (job, progress) => {
+      logger.debug('Job progress', { queue: 'generate', jobId: job.id, progress });
+    });
 
     logger.info('Job queues initialized');
     return queues;
@@ -84,7 +104,30 @@ export function getQueue(name = 'generate') {
  */
 export async function add(queueName, jobName, data, options = {}) {
   const queue = getQueue(queueName);
-  return queue.add(jobName, data, options);
+  logger.info('Adding job to queue', {
+    queue: queueName,
+    jobName,
+    data,
+    options
+  });
+  try {
+    const job = await queue.add(jobName, data, options);
+    logger.info('Job added successfully', {
+      queue: queueName,
+      jobId: job.id,
+      jobName,
+      delay: options.delay || 0
+    });
+    return job;
+  } catch (error) {
+    logger.error('Failed to add job to queue', {
+      queue: queueName,
+      jobName,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
 }
 
 /**
@@ -274,6 +317,7 @@ export function createWorker(queueName, processor, options = {}) {
  * Graceful shutdown for queues
  */
 export async function shutdownQueues() {
+  stopQueueMetricsLogger();
   for (const [name, queue] of queues) {
     try {
       await queue.close();
@@ -287,6 +331,41 @@ export async function shutdownQueues() {
   }
 }
 
+/**
+ * Start periodic logging of queue metrics
+ */
+function startQueueMetricsLogger() {
+  if (metricsInterval) {
+    return; // Already started
+  }
+  const intervalMs = parseInt(process.env.QUEUE_METRICS_LOG_INTERVAL) || 300000; // 5 minutes default
+  metricsInterval = setInterval(async () => {
+    try {
+      const metrics = await getQueueMetrics('generate');
+      logger.info('Queue metrics', {
+        queue: 'generate',
+        ...metrics
+      });
+    } catch (error) {
+      logger.warn('Failed to fetch queue metrics', {
+        error: error.message
+      });
+    }
+  }, intervalMs);
+  logger.debug('Queue metrics logger started', { intervalMs });
+}
+
+/**
+ * Stop periodic logging of queue metrics
+ */
+function stopQueueMetricsLogger() {
+  if (metricsInterval) {
+    clearInterval(metricsInterval);
+    metricsInterval = null;
+    logger.debug('Queue metrics logger stopped');
+  }
+}
+
 // Initialize queues on import - but only if Redis is available
 let queueInitialized = false;
 
@@ -297,6 +376,7 @@ async function initializeQueueSystem() {
     // Check if Redis client is available before initializing queues
     getRedisClient();
     initQueues();
+    startQueueMetricsLogger();
     queueInitialized = true;
     logger.info('Queue system initialized');
   } catch (error) {

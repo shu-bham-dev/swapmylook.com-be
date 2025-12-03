@@ -75,7 +75,7 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
     });
 
     // Debug: Log full payload for troubleshooting
-    console.log('🔍 Gemini API Payload:', JSON.stringify({
+    logger.debug('Gemini API Payload', {
       url: apiUrl,
       payload: {
         ...geminiPayload,
@@ -95,7 +95,7 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
           })
         }))
       }
-    }, null, 2));
+    });
 
     const response = await axios.post(
       apiUrl,
@@ -116,10 +116,10 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
     });
 
     // Debug: Log full response structure for troubleshooting
-    console.log('🔍 Gemini API Response:', JSON.stringify({
+    logger.debug('Gemini API Response', {
       status: response.status,
       data: response.data
-    }, null, 2));
+    });
 
     return response.data;
   } catch (error) {
@@ -161,6 +161,7 @@ async function processGenerationJob(job) {
   const startTime = Date.now();
 
   logger.info('Processing generation job', { jobId, userId });
+  job.log('Starting processing generation job');
 
   // Get job record from database
   const jobRecord = await JobRecord.findById(jobId);
@@ -209,51 +210,55 @@ async function processGenerationJob(job) {
       modelImageSize: modelImageBuffer.length,
       outfitImageSize: outfitImageBuffer.length
     });
+    job.log('Downloaded input images');
 
     // Call Gemini API for generation
     const geminiResult = await callGeminiAPI(
       modelImageBuffer,
       outfitImageBuffer
     );
+    job.log('Gemini API call completed');
 
     // Extract the generated image from Gemini response
-    console.log('🔍 Checking Gemini response structure...');
-    console.log('   Has candidates:', !!geminiResult.candidates);
-    console.log('   Full response keys:', Object.keys(geminiResult));
+    logger.debug('Checking Gemini response structure', {
+      hasCandidates: !!geminiResult.candidates,
+      responseKeys: Object.keys(geminiResult)
+    });
     
     if (!geminiResult.candidates || !geminiResult.candidates[0]) {
-      console.log('❌ No candidates found in response');
-      console.log('📋 Full response:', JSON.stringify(geminiResult, null, 2));
+      logger.error('No candidates found in response', {
+        fullResponse: geminiResult
+      });
       throw new Error('Gemini API did not return any candidates');
     }
 
     const candidate = geminiResult.candidates[0];
-    console.log('   Candidate 0 keys:', Object.keys(candidate));
-    console.log('   Candidate 0 has content:', !!candidate.content);
-    console.log('   Candidate finish reason:', candidate.finishReason);
-    console.log('   Candidate finish message:', candidate.finishMessage);
+    job.log('Candidate keys: ' + Object.keys(candidate).join(', '));
+    job.log('Candidate has content: ' + !!candidate.content);
+    job.log('Candidate finish reason: ' + candidate.finishReason);
+    job.log('Candidate finish message: ' + (candidate.finishMessage || 'none'));
     
     // Handle safety filter rejections
     if (candidate.finishReason === 'IMAGE_OTHER' || candidate.finishReason === 'SAFETY') {
       const errorMessage = candidate.finishMessage || 'Image generation blocked by content safety filters';
-      console.log('❌ Image generation blocked by safety filters:', errorMessage);
+      job.log('❌ Image generation blocked by safety filters: ' + errorMessage);
       throw new Error(`Gemini API safety filter: ${errorMessage}`);
     }
     
     if (!candidate.content || !candidate.content.parts) {
-      console.log('❌ Candidate has no content or parts');
-      console.log('📋 Candidate structure:', JSON.stringify(candidate, null, 2));
+      job.log('❌ Candidate has no content or parts');
+      job.log('📋 Candidate structure: ' + JSON.stringify(candidate, null, 2));
       throw new Error('Gemini API candidate has no content or parts');
     }
 
-    console.log('   Parts count:', candidate.content.parts.length);
+    job.log('Parts count: ' + candidate.content.parts.length);
     
     // Search through all parts to find the image data
     let generatedImageData = null;
     candidate.content.parts.forEach((part, index) => {
-      console.log(`   Part ${index} type:`, part.text ? 'text' : part.inlineData ? 'inlineData' : 'unknown');
+      job.log(`Part ${index} type: ${part.text ? 'text' : part.inlineData ? 'inlineData' : 'unknown'}`);
       if (part.inlineData) {
-        console.log(`   Part ${index} inlineData mimeType:`, part.inlineData.mimeType);
+        job.log(`Part ${index} inlineData mimeType: ${part.inlineData.mimeType}`);
         if (!generatedImageData) {
           generatedImageData = part.inlineData;
         }
@@ -261,17 +266,17 @@ async function processGenerationJob(job) {
     });
 
     if (!generatedImageData) {
-      console.log('❌ No image data found in response parts');
-      console.log('📋 Available parts:', candidate.content.parts.map((part, index) => ({
+      job.log('❌ No image data found in response parts');
+      job.log('📋 Available parts: ' + JSON.stringify(candidate.content.parts.map((part, index) => ({
         index,
         type: part.text ? 'text' : part.inlineData ? 'inlineData' : 'unknown',
         text: part.text ? part.text.substring(0, 100) + '...' : undefined,
         mimeType: part.inlineData?.mimeType
-      })));
+      })), null, 2));
       throw new Error('Gemini API did not return a valid image response - no inlineData found in parts');
     }
 
-    console.log('✅ Found image data with mimeType:', generatedImageData.mimeType);
+    job.log('✅ Found image data with mimeType: ' + generatedImageData.mimeType);
     
     // Convert base64 image to buffer
     const outputImageBuffer = Buffer.from(generatedImageData.data, 'base64');
