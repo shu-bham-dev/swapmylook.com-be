@@ -29,11 +29,9 @@ import { connectRedis } from './config/redis.js';
 import { setupPassport } from './config/passport.js';
 import { setupSwagger } from './config/swagger.js';
 import { initQueues, getQueue } from './config/queue.js';
-import { initRateLimiters } from './middleware/rateLimiter.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
-import { globalRateLimiter } from './middleware/rateLimiter.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -72,9 +70,6 @@ app.use(morgan('combined'));
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Rate limiting
-app.use(globalRateLimiter);
 
 // Initialize authentication
 setupPassport(app);
@@ -167,15 +162,6 @@ async function initializeApp() {
         message: `The requested route ${req.originalUrl} does not exist.`
       });
     });
-
-    // Initialize rate limiters (with graceful failure handling)
-    try {
-      console.log('⏱️ Initializing rate limiters...');
-      await initRateLimiters();
-      console.log('✅ Rate limiters initialized');
-    } catch (rateLimitError) {
-      console.warn('⚠️ Rate limiter initialization failed, continuing without rate limiting:', rateLimitError.message);
-    }
 
     // Start server
     console.log(`🌐 Starting server on 0.0.0.0:${PORT}...`);

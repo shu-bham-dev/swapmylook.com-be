@@ -521,6 +521,7 @@ async function startWorker() {
     const worker = new Worker('generate', processGenerationJob, {
       connection,
       concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2,
+      pollInterval: 5000, // Reduce Redis polling frequency
       limiter: {
         max: 10,
         duration: 60000 // 1 minute

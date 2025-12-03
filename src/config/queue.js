@@ -222,6 +222,7 @@ export function createWorker(queueName, processor, options = {}) {
       connection: redisClient,
       concurrency: options.concurrency || 1,
       limiter: options.limiter,
+      pollInterval: 5000, // Reduce Redis polling frequency
       ...options
     });
 
