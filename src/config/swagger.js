@@ -161,10 +161,6 @@ const swaggerDefinition = {
     {
       name: 'Admin',
       description: 'Administrative endpoints (requires admin privileges)'
-    },
-    {
-      name: 'Health',
-      description: 'Service health and monitoring endpoints'
     }
   ]
 };

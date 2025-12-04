@@ -4,9 +4,6 @@ import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('queue');
 
-// Metrics logging interval
-let metricsInterval = null;
-
 // Queue instances
 const queues = new Map();
 
@@ -83,6 +80,7 @@ export function getQueue(name = 'generate') {
       getFailedCount: () => Promise.resolve(0),
       getDelayedCount: () => Promise.resolve(0),
       getPausedCount: () => Promise.resolve(0),
+      getJobCountByTypes: () => Promise.resolve(0),
       clean: () => Promise.resolve([]),
       pause: () => Promise.resolve(),
       resume: () => Promise.resolve(),
@@ -162,7 +160,7 @@ export async function getQueueMetrics(queueName = 'generate') {
     queue.getCompletedCount(),
     queue.getFailedCount(),
     queue.getDelayedCount(),
-    queue.getPausedCount()
+    queue.getJobCountByTypes('paused')
   ]);
 
   return {
@@ -317,7 +315,6 @@ export function createWorker(queueName, processor, options = {}) {
  * Graceful shutdown for queues
  */
 export async function shutdownQueues() {
-  stopQueueMetricsLogger();
   for (const [name, queue] of queues) {
     try {
       await queue.close();
@@ -331,40 +328,6 @@ export async function shutdownQueues() {
   }
 }
 
-/**
- * Start periodic logging of queue metrics
- */
-function startQueueMetricsLogger() {
-  if (metricsInterval) {
-    return; // Already started
-  }
-  const intervalMs = parseInt(process.env.QUEUE_METRICS_LOG_INTERVAL) || 300000; // 5 minutes default
-  metricsInterval = setInterval(async () => {
-    try {
-      const metrics = await getQueueMetrics('generate');
-      logger.info('Queue metrics', {
-        queue: 'generate',
-        ...metrics
-      });
-    } catch (error) {
-      logger.warn('Failed to fetch queue metrics', {
-        error: error.message
-      });
-    }
-  }, intervalMs);
-  logger.debug('Queue metrics logger started', { intervalMs });
-}
-
-/**
- * Stop periodic logging of queue metrics
- */
-function stopQueueMetricsLogger() {
-  if (metricsInterval) {
-    clearInterval(metricsInterval);
-    metricsInterval = null;
-    logger.debug('Queue metrics logger stopped');
-  }
-}
 
 // Initialize queues on import - but only if Redis is available
 let queueInitialized = false;
@@ -376,7 +339,6 @@ async function initializeQueueSystem() {
     // Check if Redis client is available before initializing queues
     getRedisClient();
     initQueues();
-    startQueueMetricsLogger();
     queueInitialized = true;
     logger.info('Queue system initialized');
   } catch (error) {

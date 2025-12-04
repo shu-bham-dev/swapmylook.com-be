@@ -65,37 +65,37 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
     const apiUrl = `${GEMINI_CONFIG.baseURL}/models/${GEMINI_CONFIG.model}:generateContent`;
     
     // Log the API call details
-    logger.debug('Making Gemini API call', {
-      url: apiUrl,
-      headers: {
-        'x-goog-api-key': `${process.env.GEMINI_API_KEY.substring(0, 10)}...`,
-        'Content-Type': 'application/json'
-      },
-      timeout: GEMINI_CONFIG.timeout
-    });
+    // logger.debug('Making Gemini API call', {
+    //   url: apiUrl,
+    //   headers: {
+    //     'x-goog-api-key': `${process.env.GEMINI_API_KEY.substring(0, 10)}...`,
+    //     'Content-Type': 'application/json'
+    //   },
+    //   timeout: GEMINI_CONFIG.timeout
+    // });
 
     // Debug: Log full payload for troubleshooting
-    logger.debug('Gemini API Payload', {
-      url: apiUrl,
-      payload: {
-        ...geminiPayload,
-        contents: geminiPayload.contents.map(content => ({
-          ...content,
-          parts: content.parts.map(part => {
-            if (part.inlineData) {
-              return {
-                ...part,
-                inlineData: {
-                  ...part.inlineData,
-                  data: `${part.inlineData.data.substring(0, 50)}...` // Truncate base64 for readability
-                }
-              };
-            }
-            return part;
-          })
-        }))
-      }
-    });
+    // logger.debug('Gemini API Payload', {
+    //   url: apiUrl,
+    //   payload: {
+    //     ...geminiPayload,
+    //     contents: geminiPayload.contents.map(content => ({
+    //       ...content,
+    //       parts: content.parts.map(part => {
+    //         if (part.inlineData) {
+    //           return {
+    //             ...part,
+    //             inlineData: {
+    //               ...part.inlineData,
+    //               data: `${part.inlineData.data.substring(0, 50)}...` // Truncate base64 for readability
+    //             }
+    //           };
+    //         }
+    //         return part;
+    //       })
+    //     }))
+    //   }
+    // });
 
     const response = await axios.post(
       apiUrl,
@@ -109,17 +109,17 @@ async function callGeminiAPI(modelImageBuffer, outfitImageBuffer) {
       }
     );
 
-    logger.debug('Gemini API response received', {
-      status: response.status,
-      hasCandidates: !!response.data.candidates,
-      responseKeys: Object.keys(response.data)
-    });
+    // logger.debug('Gemini API response received', {
+    //   status: response.status,
+    //   hasCandidates: !!response.data.candidates,
+    //   responseKeys: Object.keys(response.data)
+    // });
 
     // Debug: Log full response structure for troubleshooting
-    logger.debug('Gemini API Response', {
-      status: response.status,
-      data: response.data
-    });
+    // logger.debug('Gemini API Response', {
+    //   status: response.status,
+    //   data: response.data
+    // });
 
     return response.data;
   } catch (error) {
@@ -205,11 +205,11 @@ async function processGenerationJob(job) {
     const modelImageBuffer = Buffer.from(modelResponse.data);
     const outfitImageBuffer = Buffer.from(outfitResponse.data);
 
-    logger.debug('Downloaded input images', {
-      jobId,
-      modelImageSize: modelImageBuffer.length,
-      outfitImageSize: outfitImageBuffer.length
-    });
+    // logger.debug('Downloaded input images', {
+    //   jobId,
+    //   modelImageSize: modelImageBuffer.length,
+    //   outfitImageSize: outfitImageBuffer.length
+    // });
     job.log('Downloaded input images');
 
     // Call Gemini API for generation
@@ -220,10 +220,10 @@ async function processGenerationJob(job) {
     job.log('Gemini API call completed');
 
     // Extract the generated image from Gemini response
-    logger.debug('Checking Gemini response structure', {
-      hasCandidates: !!geminiResult.candidates,
-      responseKeys: Object.keys(geminiResult)
-    });
+    // logger.debug('Checking Gemini response structure', {
+    //   hasCandidates: !!geminiResult.candidates,
+    //   responseKeys: Object.keys(geminiResult)
+    // });
     
     if (!geminiResult.candidates || !geminiResult.candidates[0]) {
       logger.error('No candidates found in response', {
@@ -454,11 +454,11 @@ async function generateThumbnails(outputImage) {
 
       await thumbnailAsset.save();
 
-      logger.debug('Thumbnail generated', {
-        outputImageId: outputImage._id,
-        size,
-        thumbnailId: thumbnailAsset._id
-      });
+      // logger.debug('Thumbnail generated', {
+      //   outputImageId: outputImage._id,
+      //   size,
+      //   thumbnailId: thumbnailAsset._id
+      // });
 
     } catch (error) {
       logger.warn('Failed to generate thumbnail', {

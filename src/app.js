@@ -43,7 +43,6 @@ import outfitsRoutes from './routes/outfits.js';
 import settingsRoutes from './routes/settings.js';
 import subscriptionRoutes from './routes/subscription.js';
 import adminRoutes from './routes/admin.js';
-import healthRoutes from './routes/health.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -79,12 +78,11 @@ if (process.env.NODE_ENV !== 'production') {
   setupSwagger(app);
 }
 
-// Health check endpoint
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     message: 'SwapMyLook API Server',
     version: '1.0.0',
-    status: 'healthy',
     documentation: process.env.NODE_ENV !== 'production' ? '/api-docs' : null
   });
 });
@@ -99,7 +97,6 @@ app.use('/api/v1/outfits', outfitsRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/health', healthRoutes);
 
 // Global error handler
 app.use(errorHandler);

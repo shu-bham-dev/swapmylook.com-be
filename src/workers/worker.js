@@ -1,10 +1,8 @@
 import { createLogger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 import { connectRedis, getRedisClient } from '../config/redis.js';
-import { initQueues } from '../config/queue.js';
 import { Worker } from 'bullmq';
 import { processGenerationJob } from './imageProcessor.js';
-import http from 'http';
 
 const logger = createLogger('worker-main');
 
@@ -39,34 +37,6 @@ function setupGracefulShutdown(worker) {
   process.on('SIGQUIT', () => shutdown('SIGQUIT'));
 }
 
-// Health check endpoint for Railway
-function setupHealthCheck() {
-  const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        queue: 'generate'
-      }));
-    } else {
-      res.writeHead(404);
-      res.end('Not Found');
-    }
-  });
-
-  // Railway automatically provides PORT environment variable
-  // Use WORKER_PORT if defined, otherwise PORT, with 3001 as fallback for local development
-  const PORT = process.env.WORKER_PORT || process.env.PORT || 3001;
-  server.listen(PORT, () => {
-    logger.info(`Worker health check server running on port ${PORT}`);
-    logger.info(`Health check endpoint: http://localhost:${PORT}/health`);
-  });
-
-  return server;
-}
 
 // Main worker startup function
 async function startWorker() {
@@ -82,10 +52,6 @@ async function startWorker() {
     await connectRedis();
     const redisClient = getRedisClient();
     logger.info('✅ Redis connected successfully');
-
-    // Initialize queues
-    await initQueues();
-    logger.info('✅ Queues initialized');
 
     // Create worker
     const worker = new Worker('generate', processGenerationJob, {
@@ -135,17 +101,11 @@ async function startWorker() {
     // Setup graceful shutdown
     setupGracefulShutdown(worker);
 
-    // Setup health check
-    logger.info('Setting up health check server...');
-    const healthServer = setupHealthCheck();
-    logger.info('Health check server setup completed');
-
     logger.info('✅ Image processor worker started successfully', {
-      concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2,
-      port: process.env.WORKER_PORT || process.env.PORT || 3001
+      concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 2
     });
 
-    return { worker, healthServer };
+    return { worker };
 
   } catch (error) {
     logger.error('Failed to start image processor worker', {
@@ -161,4 +121,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   startWorker();
 }
 
-export { startWorker, setupGracefulShutdown, setupHealthCheck };
+export { startWorker, setupGracefulShutdown };
