@@ -171,17 +171,22 @@ export function requireAdmin() {
 /**
  * Generate JWT token for user
  * @param {Object} user - User object
+ * @param {boolean} rememberMe - Whether to remember the user (longer expiration)
  * @returns {string} - JWT token
  */
-export function generateJWTToken(user) {
+export function generateJWTToken(user, rememberMe = false) {
   const payload = {
     id: user.id,
     email: user.email,
     plan: user.plan
   };
 
+  const expiresIn = rememberMe
+    ? process.env.JWT_REMEMBER_ME_EXPIRES_IN || '7d'
+    : process.env.JWT_EXPIRES_IN || '1h';
+
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    expiresIn,
     issuer: 'swapmylook-api',
     audience: 'swapmylook-client'
   });

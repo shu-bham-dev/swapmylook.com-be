@@ -4,6 +4,7 @@ import { asyncHandler, ValidationError, NotFoundError } from '../middleware/erro
 import ImageAsset from '../models/ImageAsset.js';
 import JobRecord from '../models/JobRecord.js';
 import Audit from '../models/Audit.js';
+import User from '../models/User.js';
 import { createLogger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -252,6 +253,9 @@ router.get('/', requireAuth(), asyncHandler(async (req, res) => {
  *                 favorites:
  *                   type: integer
  *                   description: Number of favorite images
+ *                 generationAttempts:
+ *                   type: integer
+ *                   description: Total number of generation attempts (including failed)
  *       401:
  *         description: Unauthorized - invalid or missing token
  *         content:
@@ -290,6 +294,10 @@ router.get('/stats', requireAuth(), asyncHandler(async (req, res) => {
     type: { $in: ['model', 'outfit', 'output'] }
   });
 
+  // Get generation attempts count
+  const user = await User.findById(userId).select('generationAttempts');
+  const generationAttempts = user ? user.generationAttempts : 0;
+
   // Format counts by type
   const byType = {
     model: 0,
@@ -311,7 +319,8 @@ router.get('/stats', requireAuth(), asyncHandler(async (req, res) => {
       total: storageUsage.totalFiles,
       byType,
       favorites: favoritesCount,
-      storageUsage: storageUsage.totalBytes
+      storageUsage: storageUsage.totalBytes,
+      generationAttempts
     }
   });
 
@@ -319,7 +328,8 @@ router.get('/stats', requireAuth(), asyncHandler(async (req, res) => {
     total: storageUsage.totalFiles,
     byType,
     storageUsage,
-    favorites: favoritesCount
+    favorites: favoritesCount,
+    generationAttempts
   });
 }));
 

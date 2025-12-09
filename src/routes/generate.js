@@ -42,7 +42,7 @@ const GEMINI_CONFIG = {
  * @desc    Direct image generation using Google Gemini API
  * @access  Private
  */
-router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.single('image'), asyncHandler(async (req, res) => {
+router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), usageTracker('generation'), upload.single('image'), asyncHandler(async (req, res) => {
   const { prompt } = req.body;
   const imageFile = req.file;
 
@@ -65,6 +65,9 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
   if (!process.env.GEMINI_API_KEY) {
     throw new ValidationError('Gemini API key is not configured');
   }
+
+  // Increment generation attempts counter
+  await req.user.incrementGenerationAttempts();
 
   try {
     // Convert image to base64
@@ -214,7 +217,7 @@ router.post('/direct', requireAuth(), generateRateLimiter, quotaCheck(), upload.
  * @desc    Create new generation job
  * @access  Private
  */
-router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(async (req, res) => {
+router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), usageTracker('generation'), asyncHandler(async (req, res) => {
   const { modelImageId, outfitImageId, options, callbackUrl, projectId } = req.body;
 
   // Validate required fields
@@ -247,6 +250,9 @@ router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), asyncHandler(
   if (outfitImage.type !== 'outfit') {
     throw new ValidationError('Outfit image must be of type "outfit"');
   }
+
+  // Increment generation attempts counter
+  await req.user.incrementGenerationAttempts();
 
   // Create job record
   const jobRecord = new JobRecord({
@@ -693,7 +699,6 @@ router.post('/webhook', asyncHandler(async (req, res) => {
   res.json({ received: true, jobId });
 }));
 
-// Apply usage tracking to successful generations
-router.use(usageTracker('generation'));
+// Apply usage tracking to successful generations (already applied per route)
 
 export default router;

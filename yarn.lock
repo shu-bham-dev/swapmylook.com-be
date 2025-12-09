@@ -1836,6 +1836,11 @@
   resolved "https://registry.npmjs.org/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz"
   integrity sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==
 
+"@stablelib/base64@^1.0.0":
+  version "1.0.1"
+  resolved "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz"
+  integrity sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==
+
 "@types/babel__core@^7.1.14":
   version "7.20.5"
   resolved "https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz"
@@ -2888,6 +2893,13 @@ doctrine@^3.0.0, doctrine@3.0.0:
   dependencies:
     esutils "^2.0.2"
 
+dodopayments@^2.8.0:
+  version "2.8.0"
+  resolved "https://registry.npmjs.org/dodopayments/-/dodopayments-2.8.0.tgz"
+  integrity sha512-iU1ObJFpvf2tBvX9i15oG5mOFrp5m57GOpBzwi9qmq26A9BhEb8A2XogObBGdEFt5tK+ZkhVFS9x93Lt7jb+FA==
+  dependencies:
+    standardwebhooks "^1.0.0"
+
 dotenv@^16.3.1:
   version "16.6.1"
   resolved "https://registry.npmjs.org/dotenv/-/dotenv-16.6.1.tgz"
@@ -3252,6 +3264,11 @@ fast-safe-stringify@^2.1.1:
   version "2.1.1"
   resolved "https://registry.npmjs.org/fast-safe-stringify/-/fast-safe-stringify-2.1.1.tgz"
   integrity sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==
+
+fast-sha256@^1.3.0:
+  version "1.3.0"
+  resolved "https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz"
+  integrity sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==
 
 fast-xml-parser@5.2.5:
   version "5.2.5"
@@ -5677,6 +5694,14 @@ standard-as-callback@^2.1.0:
   version "2.1.0"
   resolved "https://registry.npmjs.org/standard-as-callback/-/standard-as-callback-2.1.0.tgz"
   integrity sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==
+
+standardwebhooks@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.0.0.tgz"
+  integrity sha512-BbHGOQK9olHPMvQNHWul6MYlrRTAOKn03rOe4A8O3CLWhNf4YHBqq2HJKKC+sfqpxiBY52pNeesD6jIiLDz8jg==
+  dependencies:
+    "@stablelib/base64" "^1.0.0"
+    fast-sha256 "^1.3.0"
 
 statuses@2.0.1:
   version "2.0.1"

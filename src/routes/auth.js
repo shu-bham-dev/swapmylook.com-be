@@ -675,12 +675,7 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
       email: email.toLowerCase(),
       name: name.trim(),
       plan: 'free',
-      isActive: true,
-      quota: {
-        monthlyRequests: 100,
-        usedThisMonth: 0,
-        resetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-      }
+      isActive: true
     });
 
     await user.save();
@@ -744,6 +739,10 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
  *                 format: password
  *                 description: User's password
  *                 example: "password123"
+ *               rememberMe:
+ *                 type: boolean
+ *                 description: Whether to remember the user across sessions (longer token expiration)
+ *                 example: false
  *     responses:
  *       200:
  *         description: Login successful
@@ -777,7 +776,7 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/login', authRateLimiter, asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, rememberMe = false } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -802,8 +801,8 @@ router.post('/login', authRateLimiter, asyncHandler(async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
-    // Generate JWT token
-    const token = generateJWTToken(user);
+    // Generate JWT token with rememberMe
+    const token = generateJWTToken(user, rememberMe);
 
     // Log successful login
     await Audit.logUsage({

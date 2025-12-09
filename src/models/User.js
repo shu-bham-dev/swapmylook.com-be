@@ -80,6 +80,10 @@ const userSchema = new mongoose.Schema({
       }
     }
   },
+  generationAttempts: {
+    type: Number,
+    default: 0
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -190,6 +194,11 @@ userSchema.methods.incrementUsage = function() {
   }
   
   this.quota.usedThisMonth += 1;
+  return this.save();
+};
+// Method to increment generation attempts
+userSchema.methods.incrementGenerationAttempts = function() {
+  this.generationAttempts += 1;
   return this.save();
 };
 
