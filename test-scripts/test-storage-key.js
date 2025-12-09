@@ -1,4 +1,4 @@
-import { generateStorageKey } from './src/config/storage.js';
+import { generateStorageKey } from '../src/config/storage.js';
 
 // Test different filename scenarios
 const testCases = [

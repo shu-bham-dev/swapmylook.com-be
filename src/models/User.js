@@ -47,11 +47,16 @@ const userSchema = new mongoose.Schema({
     currentPeriodEnd: {
       type: Date
     },
-    stripeCustomerId: {
+    dodoCustomerId: {
       type: String
     },
-    stripeSubscriptionId: {
+    dodoSubscriptionId: {
       type: String
+    },
+    paymentProvider: {
+      type: String,
+      enum: ['stripe', 'dodo'],
+      default: 'dodo'
     }
   },
   quota: {

@@ -25,7 +25,7 @@ async function updateUser() {
         console.log('Connected to MongoDB');
 
         // Import User model
-        const User = (await import('./src/models/User.js')).default;
+        const User = (await import('../src/models/User.js')).default;
 
         const email = 'singhaman5@gmail.com';
         // or by _id: ObjectId('6935a647d258dbe17f1b65d1')

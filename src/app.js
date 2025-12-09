@@ -1,3 +1,6 @@
+// Increase max listeners to avoid warning
+process.setMaxListeners(20);
+
 // Global error handlers for uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('❌ UNCAUGHT EXCEPTION:', error);
@@ -42,6 +45,8 @@ import galleryRoutes from './routes/gallery.js';
 import outfitsRoutes from './routes/outfits.js';
 import settingsRoutes from './routes/settings.js';
 import subscriptionRoutes from './routes/subscription.js';
+import paymentsRoutes from './routes/payments.js';
+import webhooksRoutes from './routes/webhooks.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -96,6 +101,8 @@ app.use('/api/v1/gallery', galleryRoutes);
 app.use('/api/v1/outfits', outfitsRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
+app.use('/api/v1/payments', paymentsRoutes);
+app.use('/api/v1/webhooks', webhooksRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 // Global error handler
