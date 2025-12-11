@@ -48,6 +48,7 @@ import subscriptionRoutes from './routes/subscription.js';
 import paymentsRoutes from './routes/payments.js';
 import webhooksRoutes from './routes/webhooks.js';
 import adminRoutes from './routes/admin.js';
+import publicRoutes from './routes/public.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -104,6 +105,7 @@ app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
 app.use('/api/v1/webhooks', webhooksRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/public', publicRoutes);
 
 // Global error handler
 app.use(errorHandler);

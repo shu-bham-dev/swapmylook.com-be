@@ -43,6 +43,11 @@ const imageAssetSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  name: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   metadata: {
     filename: String,
     originalName: String,
@@ -106,6 +111,8 @@ imageAssetSchema.index({ projectId: 1 });
 imageAssetSchema.index({ nanobananaJobId: 1 });
 imageAssetSchema.index({ isDeleted: 1 });
 imageAssetSchema.index({ favorite: 1 });
+imageAssetSchema.index({ isPublic: 1, type: 1 });
+imageAssetSchema.index({ isPublic: 1, tags: 1 });
 
 // Virtual for file extension
 imageAssetSchema.virtual('extension').get(function() {

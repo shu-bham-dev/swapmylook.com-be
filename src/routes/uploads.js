@@ -407,7 +407,7 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
     throw new ValidationError('No file uploaded');
   }
 
-  const { purpose, projectId } = req.body;
+  const { purpose, projectId, name, tags, isPublic } = req.body;
   const file = req.file;
 
   // Validate purpose
@@ -440,6 +440,15 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
   // Create image asset record
   // For profile pictures (purpose 'other'), use type 'profile'
   const assetType = purpose === 'other' ? 'profile' : purpose;
+  // Parse tags if provided (comma-separated string or array)
+  let tagArray = [];
+  if (tags) {
+    if (typeof tags === 'string') {
+      tagArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+    } else if (Array.isArray(tags)) {
+      tagArray = tags.map(tag => tag.trim()).filter(tag => tag.length > 0);
+    }
+  }
   const imageAsset = new ImageAsset({
     userId: req.user._id,
     projectId: projectId || null,
@@ -450,6 +459,9 @@ router.post('/direct', requireAuth(), uploadRateLimiter, upload.single('file'), 
     height,
     mimeType: file.mimetype,
     sizeBytes: file.size,
+    name: name || file.originalname,
+    tags: tagArray,
+    isPublic: isPublic === 'true' || isPublic === true,
     metadata: {
       filename: file.originalname,
       uploadDate: new Date()
