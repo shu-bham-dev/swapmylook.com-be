@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  passwordHash: {
+    type: String,
+    select: false // Exclude from default queries for security
+  },
   plan: {
     type: String,
     enum: ['free', 'basic', 'premium', 'pro'],
@@ -144,6 +148,7 @@ const userSchema = new mongoose.Schema({
       delete ret._id;
       delete ret.__v;
       delete ret.googleId;
+      delete ret.passwordHash;
       return ret;
     }
   }

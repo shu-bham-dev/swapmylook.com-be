@@ -39,7 +39,7 @@ export function setupPassport(app) {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: process.env.GOOGLE_CALLBACK_URL || '/api/v1/auth/google/callback',
     scope: ['profile', 'email'],
-    state: true
+    state: false
   }, async (accessToken, refreshToken, profile, done) => {
     try {
       logger.info('Google OAuth authentication attempt', {
