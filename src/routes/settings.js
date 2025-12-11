@@ -1,4 +1,5 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { requireAuth } from '../config/passport.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import User from '../models/User.js';
@@ -298,36 +299,63 @@ router.put('/password', requireAuth(), asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Current password and new password are required' });
   }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+  // New password validation (same as signup)
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long' });
   }
 
-  const user = await User.findById(req.user.id);
+  const hasUpperCase = /[A-Z]/.test(newPassword);
+  const hasLowerCase = /[a-z]/.test(newPassword);
+  const hasNumbers = /\d/.test(newPassword);
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword);
+
+  if (!hasUpperCase || !hasLowerCase || !hasNumbers || !hasSpecialChar) {
+    return res.status(400).json({
+      error: 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'
+    });
+  }
+
+  // Common password check
+  const commonPasswords = ['password', '123456', 'qwerty', 'letmein', 'welcome'];
+  if (commonPasswords.includes(newPassword.toLowerCase())) {
+    return res.status(400).json({ error: 'Password is too common, please choose a stronger password' });
+  }
+
+  // Fetch user with passwordHash
+  const user = await User.findById(req.user.id).select('+passwordHash');
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Note: In a real implementation, you would verify the current password hash
-  // For now, we'll accept any current password since we don't have password hashing
-  // const isValidPassword = await bcrypt.compare(currentPassword, user.passwordHash);
-  // if (!isValidPassword) {
-  //   return res.status(401).json({ error: 'Current password is incorrect' });
-  // }
+  // Verify current password
+  const isValidPassword = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!isValidPassword) {
+    // Log failed attempt
+    await Audit.logUsage({
+      userId: user.id,
+      type: 'settings',
+      action: 'password_change_failed',
+      details: {
+        method: 'PUT',
+        endpoint: '/settings/password',
+        statusCode: 401,
+        error: 'Invalid current password'
+      },
+      isSuccess: false
+    });
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
 
-  // In a real implementation, you would hash the new password:
-  // user.passwordHash = await bcrypt.hash(newPassword, 12);
-  
-  // For now, we'll just log that password change was requested
-  logger.info('Password change requested', {
-    userId: user.id,
-    email: user.email
-  });
+  // Hash new password
+  const saltRounds = 12;
+  user.passwordHash = await bcrypt.hash(newPassword, saltRounds);
+  await user.save();
 
-  // Log password change attempt
+  // Log successful password change
   await Audit.logUsage({
     userId: user.id,
     type: 'settings',
-    action: 'password_change_attempt',
+    action: 'password_changed',
     details: {
       method: 'PUT',
       endpoint: '/settings/password',
@@ -335,7 +363,7 @@ router.put('/password', requireAuth(), asyncHandler(async (req, res) => {
     }
   });
 
-  res.json({ message: 'Password change functionality will be implemented with proper hashing' });
+  res.json({ message: 'Password changed successfully' });
 }));
 
 /**

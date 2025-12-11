@@ -228,10 +228,24 @@ router.post('/', requireAuth(), generateRateLimiter, quotaCheck(), usageTracker(
   // Use hardcoded prompt from environment variable
   const prompt = process.env.GENERATION_PROMPT || "Create a creative fashion composition. Combine elements from both images to create a new artistic fashion concept. Focus on the clothing and style elements rather than realistic human depictions.";
 
-  // Verify that images belong to the user and exist
+  // Verify that images belong to the user or are public
   const [modelImage, outfitImage] = await Promise.all([
-    ImageAsset.findOne({ _id: modelImageId, userId: req.user._id, isDeleted: false }),
-    ImageAsset.findOne({ _id: outfitImageId, userId: req.user._id, isDeleted: false })
+    ImageAsset.findOne({
+      _id: modelImageId,
+      isDeleted: false,
+      $or: [
+        { userId: req.user._id },
+        { isPublic: true }
+      ]
+    }),
+    ImageAsset.findOne({
+      _id: outfitImageId,
+      isDeleted: false,
+      $or: [
+        { userId: req.user._id },
+        { isPublic: true }
+      ]
+    })
   ]);
 
   if (!modelImage) {

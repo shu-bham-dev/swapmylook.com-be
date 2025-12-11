@@ -1,6 +1,7 @@
 import express from 'express';
 import passport from 'passport';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { generateJWTToken, verifyGoogleToken } from '../config/passport.js';
 import { requireAuth } from '../config/passport.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -48,9 +49,18 @@ const logger = createLogger('auth-routes');
  */
 router.get('/google/url', authRateLimiter, (req, res) => {
   const callbackURL = process.env.GOOGLE_CALLBACK_URL || '/api/v1/auth/google/callback';
+  // Determine the full redirect URI
+  let redirectUri;
+  if (callbackURL.startsWith('http://') || callbackURL.startsWith('https://')) {
+    // Already a full URL
+    redirectUri = callbackURL;
+  } else {
+    // Relative path, prepend APP_URL
+    redirectUri = `${process.env.APP_URL}${callbackURL}`;
+  }
   const authURL = `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
-    `redirect_uri=${encodeURIComponent(`${process.env.APP_URL}${callbackURL}`)}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
     `response_type=code&` +
     `scope=profile email&` +
     `access_type=offline&` +
@@ -659,8 +669,27 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Email, password, and name are required' });
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  // Password validation
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+  }
+
+  // Password strength validation
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumbers = /\d/.test(password);
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+  if (!hasUpperCase || !hasLowerCase || !hasNumbers || !hasSpecialChar) {
+    return res.status(400).json({
+      error: 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'
+    });
+  }
+
+  // Common password check (basic)
+  const commonPasswords = ['password', '123456', 'qwerty', 'letmein', 'welcome'];
+  if (commonPasswords.includes(password.toLowerCase())) {
+    return res.status(400).json({ error: 'Password is too common, please choose a stronger password' });
   }
 
   try {
@@ -670,10 +699,15 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
 
+    // Hash password
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
     // Create new user
     const user = new User({
       email: email.toLowerCase(),
       name: name.trim(),
+      passwordHash,
       plan: 'free',
       isActive: true
     });
@@ -783,19 +817,30 @@ router.post('/login', authRateLimiter, asyncHandler(async (req, res) => {
   }
 
   try {
-    // Find existing user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    // Find existing user by email, include passwordHash
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+passwordHash');
     
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // For now, we're accepting any password since we don't have password hashing implemented
-    // In a real implementation, you would verify the password hash here:
-    // const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    // if (!isValidPassword) {
-    //   return res.status(401).json({ error: 'Invalid email or password' });
-    // }
+    // Verify password hash
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) {
+      // Log failed login attempt
+      await Audit.logUsage({
+        type: 'login',
+        action: 'email_login_failed',
+        details: {
+          method: 'POST',
+          endpoint: '/auth/login',
+          statusCode: 401,
+          error: 'Invalid password'
+        },
+        isSuccess: false
+      });
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
     // Update last login
     user.lastLogin = new Date();
