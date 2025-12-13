@@ -118,7 +118,7 @@ router.post('/create-checkout-session', requireAuth(), asyncHandler(async (req, 
   const productId = getProductId(plan, billingCycle);
 
   // Determine return URL (where Dodo redirects after checkout)
-  const returnUrl = `${process.env.APP_URL}/billing/return`;
+  const returnUrl = `${process.env.APP_URL}/api/v1/payments/billing/return`;
   // You can also set a success/cancel URL via Dodo's checkout session parameters if needed
 
   try {
@@ -168,6 +168,59 @@ router.post('/create-checkout-session', requireAuth(), asyncHandler(async (req, 
     const message = isDev ? `Unable to create checkout session: ${error.message}` : 'Unable to create checkout session';
     res.status(500).json({ error: message });
   }
+}));
+
+/**
+* @swagger
+* /billing/return:
+*   get:
+*     summary: Handle Dodo Payments return URL
+*     description: Redirects user back to frontend after payment completion with subscription status.
+*     tags: [Payments]
+*     parameters:
+*       - in: query
+*         name: subscription_id
+*         schema:
+*           type: string
+*         description: Dodo subscription ID
+*       - in: query
+*         name: status
+*         schema:
+*           type: string
+*           enum: [pending, active, canceled, past_due]
+*         description: Subscription status after payment
+*     responses:
+*       302:
+*         description: Redirects to frontend subscription page with status
+*         headers:
+*           Location:
+*             schema:
+*               type: string
+*               format: uri
+*             description: Redirect URL to frontend
+*/
+router.get('/billing/return', asyncHandler(async (req, res) => {
+const { subscription_id: subscriptionId, status = 'pending' } = req.query;
+
+logger.info('Payment return URL called', { subscriptionId, status });
+
+// Optionally fetch subscription details from Dodo to verify
+// For now, just redirect to frontend with the same parameters
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+const redirectUrl = `${frontendUrl}/subscription?subscription_id=${subscriptionId}&status=${status}`;
+
+// Log the redirect for auditing
+await Audit.logUsage({
+  type: 'subscription_change',
+  action: 'payment_return_redirect',
+  details: {
+    subscriptionId,
+    status,
+    redirectUrl
+  }
+});
+
+res.redirect(redirectUrl);
 }));
 
 export default router;

@@ -93,6 +93,14 @@ app.get('/', (req, res) => {
   });
 });
 
+// Legacy billing return URL (for pending payments)
+app.get('/billing/return', (req, res) => {
+  const { subscription_id, status } = req.query;
+  // Redirect to the new API route which will handle logging and frontend redirect
+  const newUrl = `/api/v1/payments/billing/return?subscription_id=${subscription_id || ''}&status=${status || 'pending'}`;
+  res.redirect(newUrl);
+});
+
 // API routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
