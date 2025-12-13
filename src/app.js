@@ -97,7 +97,10 @@ app.get('/', (req, res) => {
 app.get('/billing/return', (req, res) => {
   const { subscription_id, status } = req.query;
   // Redirect to the new API route which will handle logging and frontend redirect
-  const newUrl = `/api/v1/payments/billing/return?subscription_id=${subscription_id || ''}&status=${status || 'pending'}`;
+  const params = new URLSearchParams();
+  if (subscription_id) params.append('subscription_id', subscription_id);
+  params.append('status', status || 'pending');
+  const newUrl = `/api/v1/payments/billing/return?${params.toString()}`;
   res.redirect(newUrl);
 });
 

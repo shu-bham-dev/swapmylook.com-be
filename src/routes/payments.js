@@ -207,7 +207,10 @@ logger.info('Payment return URL called', { subscriptionId, status });
 // Optionally fetch subscription details from Dodo to verify
 // For now, just redirect to frontend with the same parameters
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-const redirectUrl = `${frontendUrl}/subscription?subscription_id=${subscriptionId}&status=${status}`;
+const params = new URLSearchParams();
+if (subscriptionId) params.append('subscription_id', subscriptionId);
+params.append('status', status);
+const redirectUrl = `${frontendUrl}/subscription?${params.toString()}`;
 
 // Log the redirect for auditing
 await Audit.logUsage({
