@@ -200,30 +200,68 @@ router.post('/create-checkout-session', requireAuth(), asyncHandler(async (req, 
 *             description: Redirect URL to frontend
 */
 router.get('/billing/return', asyncHandler(async (req, res) => {
-const { subscription_id: subscriptionId, status = 'pending' } = req.query;
+  const { subscription_id: subscriptionId, status = 'pending' } = req.query;
 
-logger.info('Payment return URL called', { subscriptionId, status });
+  logger.info('Payment return URL called', { subscriptionId, status });
 
-// Optionally fetch subscription details from Dodo to verify
-// For now, just redirect to frontend with the same parameters
-const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-const params = new URLSearchParams();
-if (subscriptionId) params.append('subscription_id', subscriptionId);
-params.append('status', status);
-const redirectUrl = `${frontendUrl}/subscription?${params.toString()}`;
+  // Determine frontend redirect URL
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const params = new URLSearchParams();
+  if (subscriptionId) params.append('subscription_id', subscriptionId);
+  params.append('status', status);
+  const redirectUrl = `${frontendUrl}/subscription?${params.toString()}`;
 
-// Log the redirect for auditing
-await Audit.logUsage({
-  type: 'subscription_change',
-  action: 'payment_return_redirect',
-  details: {
-    subscriptionId,
-    status,
-    redirectUrl
+  // Try to determine userId for audit log
+  let userId = null;
+  if (subscriptionId) {
+    try {
+      // Fetch subscription details from Dodo to get metadata
+      const subscription = await getClient().subscriptions.retrieve(subscriptionId);
+      if (subscription?.metadata?.app_user_id) {
+        userId = subscription.metadata.app_user_id;
+      } else {
+        // Fallback: find user by subscriptionId stored in User model
+        const user = await User.findOne({ 'subscription.dodoSubscriptionId': subscriptionId });
+        if (user) {
+          userId = user.id;
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to fetch subscription details for audit log', {
+        subscriptionId,
+        error: error.message
+      });
+    }
   }
-});
 
-res.redirect(redirectUrl);
+  // Log the redirect for auditing (only if we have a userId)
+  if (userId) {
+    try {
+      await Audit.logUsage({
+        userId,
+        type: 'subscription_change',
+        action: 'payment_return_redirect',
+        details: {
+          subscriptionId,
+          status,
+          redirectUrl
+        }
+      });
+    } catch (error) {
+      logger.warn('Failed to save audit log', {
+        error: error.message,
+        subscriptionId,
+        status
+      });
+    }
+  } else {
+    logger.warn('Skipping audit log for payment return due to missing userId', {
+      subscriptionId,
+      status
+    });
+  }
+
+  res.redirect(redirectUrl);
 }));
 
 export default router;
