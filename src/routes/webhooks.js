@@ -116,26 +116,40 @@ const verifyDodoSignature = (payload, signatureHeader, secret) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
+  console.log('=== DODO WEBHOOK RECEIVED ===');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  
   const sigHeader = req.headers['webhook-signature'] || req.headers['webhook_signature'];
   const secret = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
   const payload = req.body; // raw buffer
+  
+  console.log('Payload length:', payload.length);
+  console.log('Signature header present:', !!sigHeader);
+  console.log('Webhook secret present:', !!secret);
 
   // Verify signature
   if (!verifyDodoSignature(payload, sigHeader, secret)) {
     logger.warn('Invalid webhook signature', { header: sigHeader });
+    console.log('❌ Signature verification failed');
     return res.status(400).send('Invalid signature');
   }
+  
+  console.log('✅ Signature verified successfully');
 
   // Parse JSON
   let event;
   try {
-    event = JSON.parse(payload.toString());
+    const payloadStr = payload.toString();
+    console.log('Payload string (first 500 chars):', payloadStr.substring(0, 500));
+    event = JSON.parse(payloadStr);
   } catch (err) {
     logger.error('Failed to parse webhook payload', { error: err.message });
+    console.log('❌ Failed to parse JSON:', err.message);
     return res.status(400).send('Invalid JSON');
   }
 
   logger.info('Received Dodo webhook event', { type: event.type, id: event.id });
+  console.log('✅ Webhook event parsed:', event.type, 'ID:', event.id);
 
   // Handle event types
   switch (event.type) {
@@ -143,34 +157,69 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
     case 'subscription.updated':
       // Update user subscription
       const subscription = event.data;
+      let user = null;
+      
+      // Try to find user by app_user_id in metadata first
       const userId = subscription.metadata?.app_user_id;
-      if (!userId) {
-        logger.warn('Missing app_user_id in subscription metadata', { subscription });
-        break;
+      if (userId) {
+        user = await User.findById(userId);
       }
-      const user = await User.findById(userId);
+      
+      // If user not found by ID, try to find by subscription ID
+      if (!user && subscription.id) {
+        user = await User.findOne({ 'subscription.dodoSubscriptionId': subscription.id });
+      }
+      
+      // If still not found, try to find by customer ID
+      if (!user && subscription.customer_id) {
+        user = await User.findOne({ 'subscription.dodoCustomerId': subscription.customer_id });
+      }
+      
       if (!user) {
-        logger.warn('User not found for subscription', { userId });
+        logger.warn('User not found for subscription', {
+          subscriptionId: subscription.id,
+          appUserId: userId,
+          customerId: subscription.customer_id
+        });
         break;
       }
+      
       // Update user fields
       user.subscription.status = subscription.status;
       user.subscription.dodoSubscriptionId = subscription.id;
       user.subscription.dodoCustomerId = subscription.customer_id;
       user.subscription.paymentProvider = 'dodo';
-      user.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000); // assuming Unix timestamp
+      if (subscription.current_period_end) {
+        user.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000); // assuming Unix timestamp
+      }
+      
       // Determine plan from product_id
       const productId = subscription.product_id;
-      // Map product ID to plan (you may need a mapping)
-      if (productId === process.env.DODO_PRODUCT_BASIC) {
+      console.log('Webhook received product ID:', productId);
+      console.log('Env DODO_PRODUCT_BASIC:', process.env.DODO_PRODUCT_BASIC);
+      console.log('Env DODO_PRODUCT_PREMIUM:', process.env.DODO_PRODUCT_PREMIUM);
+      console.log('Env DODO_PRODUCT_PRO:', process.env.DODO_PRODUCT_PRO);
+      
+      // Map product ID to plan
+      if (productId === process.env.DODO_PRODUCT_BASIC || productId === process.env.DODO_PRODUCT_BASIC_YEARLY) {
         user.plan = 'basic';
         user.quota.monthlyRequests = 10;
-      } else if (productId === process.env.DODO_PRODUCT_PREMIUM) {
+        console.log('Mapped to basic plan');
+      } else if (productId === process.env.DODO_PRODUCT_PREMIUM || productId === process.env.DODO_PRODUCT_PREMIUM_YEARLY) {
         user.plan = 'premium';
         user.quota.monthlyRequests = 50;
-      } else if (productId === process.env.DODO_PRODUCT_PRO) {
+        console.log('Mapped to premium plan');
+      } else if (productId === process.env.DODO_PRODUCT_PRO || productId === process.env.DODO_PRODUCT_PRO_YEARLY) {
         user.plan = 'pro';
         user.quota.monthlyRequests = 100;
+        console.log('Mapped to pro plan');
+      } else {
+        console.log('Unknown product ID:', productId);
+        // Try to determine plan from metadata
+        if (subscription.metadata?.plan) {
+          user.plan = subscription.metadata.plan;
+          console.log('Using plan from metadata:', user.plan);
+        }
       }
       await user.save();
 
@@ -186,7 +235,7 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
           plan: user.plan
         }
       });
-      logger.info('Updated user subscription from webhook', { userId, plan: user.plan, status: subscription.status });
+      logger.info('Updated user subscription from webhook', { userId: user.id, plan: user.plan, status: subscription.status });
       break;
 
     case 'payment.failed':
@@ -248,6 +297,28 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
         if (activeUser) {
           activeUser.subscription.status = 'active';
           activeUser.subscription.currentPeriodEnd = new Date(activeSub.current_period_end * 1000);
+          
+          // Update plan based on product_id if available
+          const productId = activeSub.product_id;
+          if (productId) {
+            // Map product ID to plan
+            if (productId === process.env.DODO_PRODUCT_BASIC || productId === process.env.DODO_PRODUCT_BASIC_YEARLY) {
+              activeUser.plan = 'basic';
+              activeUser.quota.monthlyRequests = 10;
+              console.log('Mapped to basic plan via subscription.active');
+            } else if (productId === process.env.DODO_PRODUCT_PREMIUM || productId === process.env.DODO_PRODUCT_PREMIUM_YEARLY) {
+              activeUser.plan = 'premium';
+              activeUser.quota.monthlyRequests = 50;
+              console.log('Mapped to premium plan via subscription.active');
+            } else if (productId === process.env.DODO_PRODUCT_PRO || productId === process.env.DODO_PRODUCT_PRO_YEARLY) {
+              activeUser.plan = 'pro';
+              activeUser.quota.monthlyRequests = 100;
+              console.log('Mapped to pro plan via subscription.active');
+            } else {
+              console.log('Unknown product ID in subscription.active:', productId);
+            }
+          }
+          
           await activeUser.save();
           await Audit.logUsage({
             userId: activeUser.id,
@@ -257,10 +328,11 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
             details: {
               subscriptionId: activeSub.id,
               status: 'active',
-              currentPeriodEnd: activeUser.subscription.currentPeriodEnd
+              currentPeriodEnd: activeUser.subscription.currentPeriodEnd,
+              plan: activeUser.plan
             }
           });
-          logger.info('Subscription activated via webhook', { userId: activeUserId, subscriptionId: activeSub.id });
+          logger.info('Subscription activated via webhook', { userId: activeUserId, subscriptionId: activeSub.id, plan: activeUser.plan });
         }
       }
       break;
@@ -347,6 +419,16 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
       if (paymentSubId) {
         const paymentUser = await User.findOne({ 'subscription.dodoSubscriptionId': paymentSubId });
         if (paymentUser) {
+          // Update subscription status to active
+          paymentUser.subscription.status = 'active';
+          
+          // If this is an initial payment, we should also update plan based on product_id
+          // Try to get product_id from payment metadata or fetch subscription details
+          // For now, we'll keep the existing plan but ensure quota is set correctly
+          // The plan will be updated when subscription.created/updated events arrive
+          
+          await paymentUser.save();
+          
           await Audit.logUsage({
             userId: paymentUser.id,
             type: 'subscription_change',
@@ -356,7 +438,8 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
               subscriptionId: paymentSubId,
               paymentId: succeededPayment.id,
               amount: succeededPayment.amount,
-              currency: succeededPayment.currency
+              currency: succeededPayment.currency,
+              status: 'active'
             }
           });
           logger.info('Payment succeeded via webhook', { userId: paymentUser.id, subscriptionId: paymentSubId, amount: succeededPayment.amount });
