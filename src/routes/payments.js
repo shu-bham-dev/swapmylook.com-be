@@ -17,7 +17,7 @@ function getClient() {
     if (!apiKey) {
       throw new Error('DODO_PAYMENTS_API_KEY environment variable is missing');
     }
-    client = new DodoPayments({ bearerToken: apiKey });
+    client = new DodoPayments({ bearerToken: apiKey, environment: 'test_mode' });
   }
   return client;
 }
@@ -124,10 +124,27 @@ router.post('/create-checkout-session', requireAuth(), asyncHandler(async (req, 
   try {
     const session = await getClient().checkoutSessions.create({
       product_cart: [{ product_id: productId, quantity: 1 }],
+      customer: {
+        email: user.email,
+        name: user.name || 'Customer'
+      },
       return_url: returnUrl,
       subscription_data: {
         // Optionally set trial_period_days if you want to override
       },
+      // Checkout page customization for better UX
+      customization: {
+        theme: 'light', // Match SwapMyLook brand
+        show_order_details: true,
+        show_on_demand_tag: false // Not using on-demand subscriptions
+      },
+      feature_flags: {
+        allow_currency_selection: true,
+        allow_discount_code: false, // Disable if not using discount codes
+        minimal_address: true // Faster checkout - only collects essential address fields
+      },
+      // Support common payment methods
+      allowed_payment_method_types: ['credit', 'debit', 'apple_pay', 'google_pay'],
       metadata: {
         app_user_id: String(user.id),
         plan,

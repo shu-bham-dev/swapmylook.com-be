@@ -10,26 +10,51 @@ const logger = createLogger('webhooks-routes');
 
 /**
  * Verify Dodo webhook signature.
- * According to Dodo documentation, webhook-signature header is HMAC SHA256 of timestamp + '.' + payload.
- * Implementation may vary; adjust based on exact docs.
+ * According to Dodo documentation, webhook signature is HMAC SHA256 of timestamp + '.' + payload.
+ * Header format: "t=timestamp,v1=signature"
  */
 const verifyDodoSignature = (payload, signatureHeader, secret) => {
   if (!signatureHeader || !secret) {
     return false;
   }
-  // Example: header format "t=timestamp,v1=signature"
-  // We'll assume the signature is the whole header (simplified).
-  // For production, follow exact Dodo docs.
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-  // Compare with signature (maybe after extracting v1=...)
-  // This is a placeholder; replace with proper extraction.
-  return crypto.timingSafeEqual(
-    Buffer.from(expected),
-    Buffer.from(signatureHeader)
-  );
+
+  try {
+    // Parse header: "t=1234567890,v1=signature"
+    const parts = signatureHeader.split(',');
+    let timestamp = '';
+    let signature = '';
+
+    for (const part of parts) {
+      const [key, value] = part.split('=');
+      if (key === 't') {
+        timestamp = value;
+      } else if (key === 'v1') {
+        signature = value;
+      }
+    }
+
+    if (!timestamp || !signature) {
+      return false;
+    }
+
+    // Create signed payload: timestamp + '.' + payload
+    const signedPayload = `${timestamp}.${payload}`;
+
+    // Calculate expected signature
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(signedPayload)
+      .digest('hex');
+
+    // Use timing-safe comparison
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature),
+      Buffer.from(signature)
+    );
+  } catch (error) {
+    logger.error('Error verifying webhook signature', { error: error.message });
+    return false;
+  }
 };
 
 /**
@@ -165,12 +190,27 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
       break;
 
     case 'payment.failed':
-      // Mark subscription as past_due or on_hold
+      // Mark subscription as past_due
       const payment = event.data;
       const subId = payment.subscription_id;
-      // Find user by subscription_id (we need to store mapping)
-      // For simplicity, we'll skip for now; you can implement later.
-      logger.info('Payment failed event', { subscriptionId: subId });
+      const failedUser = await User.findOne({ 'subscription.dodoSubscriptionId': subId });
+      if (failedUser) {
+        failedUser.subscription.status = 'past_due';
+        await failedUser.save();
+        await Audit.logUsage({
+          userId: failedUser.id,
+          type: 'subscription_change',
+          action: 'payment_failed',
+          resourceType: 'user',
+          details: {
+            subscriptionId: subId,
+            status: 'past_due'
+          }
+        });
+        logger.info('Subscription marked as past_due due to payment failure', { userId: failedUser.id, subscriptionId: subId });
+      } else {
+        logger.warn('User not found for failed payment', { subscriptionId: subId });
+      }
       break;
 
     case 'subscription.cancelled':
@@ -180,9 +220,9 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
         const cancelledUser = await User.findById(cancelledUserId);
         if (cancelledUser) {
           cancelledUser.subscription.status = 'canceled';
-          // Optionally downgrade to free plan
-          // cancelledUser.plan = 'free';
-          // cancelledUser.quota.monthlyRequests = 1;
+          // Downgrade to free plan on cancellation
+          cancelledUser.plan = 'free';
+          cancelledUser.quota.monthlyRequests = 1;
           await cancelledUser.save();
           await Audit.logUsage({
             userId: cancelledUser.id,
@@ -190,10 +230,136 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
             action: 'subscription_cancelled',
             resourceType: 'user',
             details: {
-              subscriptionId: cancelledSub.id
+              subscriptionId: cancelledSub.id,
+              downgradedTo: 'free'
             }
           });
           logger.info('Subscription cancelled via webhook', { userId: cancelledUserId });
+        }
+      }
+      break;
+
+    case 'subscription.active':
+      // Handle reactivation or successful plan change
+      const activeSub = event.data;
+      const activeUserId = activeSub.metadata?.app_user_id;
+      if (activeUserId) {
+        const activeUser = await User.findById(activeUserId);
+        if (activeUser) {
+          activeUser.subscription.status = 'active';
+          activeUser.subscription.currentPeriodEnd = new Date(activeSub.current_period_end * 1000);
+          await activeUser.save();
+          await Audit.logUsage({
+            userId: activeUser.id,
+            type: 'subscription_change',
+            action: 'subscription_activated',
+            resourceType: 'user',
+            details: {
+              subscriptionId: activeSub.id,
+              status: 'active',
+              currentPeriodEnd: activeUser.subscription.currentPeriodEnd
+            }
+          });
+          logger.info('Subscription activated via webhook', { userId: activeUserId, subscriptionId: activeSub.id });
+        }
+      }
+      break;
+
+    case 'subscription.on_hold':
+      // Subscription placed on hold due to payment failure
+      const onHoldSub = event.data;
+      const onHoldUserId = onHoldSub.metadata?.app_user_id;
+      if (onHoldUserId) {
+        const onHoldUser = await User.findById(onHoldUserId);
+        if (onHoldUser) {
+          onHoldUser.subscription.status = 'past_due';
+          await onHoldUser.save();
+          await Audit.logUsage({
+            userId: onHoldUser.id,
+            type: 'subscription_change',
+            action: 'subscription_on_hold',
+            resourceType: 'user',
+            details: {
+              subscriptionId: onHoldSub.id,
+              status: 'past_due',
+              reason: 'payment_failure'
+            }
+          });
+          logger.info('Subscription placed on hold via webhook', { userId: onHoldUserId, subscriptionId: onHoldSub.id });
+          // TODO: Send notification to user to update payment method
+        }
+      }
+      break;
+
+    case 'subscription.failed':
+      // Subscription creation failed
+      const failedSub = event.data;
+      const failedSubUserId = failedSub.metadata?.app_user_id;
+      if (failedSubUserId) {
+        const failedSubUser = await User.findById(failedSubUserId);
+        if (failedSubUser) {
+          failedSubUser.subscription.status = 'canceled';
+          await failedSubUser.save();
+          await Audit.logUsage({
+            userId: failedSubUser.id,
+            type: 'subscription_change',
+            action: 'subscription_failed',
+            resourceType: 'user',
+            details: {
+              subscriptionId: failedSub.id,
+              status: 'canceled',
+              reason: 'creation_failed'
+            }
+          });
+          logger.info('Subscription creation failed via webhook', { userId: failedSubUserId, subscriptionId: failedSub.id });
+        }
+      }
+      break;
+
+    case 'subscription.renewed':
+      // Subscription renewed for next billing period
+      const renewedSub = event.data;
+      const renewedUserId = renewedSub.metadata?.app_user_id;
+      if (renewedUserId) {
+        const renewedUser = await User.findById(renewedUserId);
+        if (renewedUser) {
+          renewedUser.subscription.currentPeriodEnd = new Date(renewedSub.current_period_end * 1000);
+          await renewedUser.save();
+          await Audit.logUsage({
+            userId: renewedUser.id,
+            type: 'subscription_change',
+            action: 'subscription_renewed',
+            resourceType: 'user',
+            details: {
+              subscriptionId: renewedSub.id,
+              currentPeriodEnd: renewedUser.subscription.currentPeriodEnd
+            }
+          });
+          logger.info('Subscription renewed via webhook', { userId: renewedUserId, subscriptionId: renewedSub.id });
+        }
+      }
+      break;
+
+    case 'payment.succeeded':
+      // Payment succeeded (could be initial payment or renewal)
+      const succeededPayment = event.data;
+      const paymentSubId = succeededPayment.subscription_id;
+      if (paymentSubId) {
+        const paymentUser = await User.findOne({ 'subscription.dodoSubscriptionId': paymentSubId });
+        if (paymentUser) {
+          await Audit.logUsage({
+            userId: paymentUser.id,
+            type: 'subscription_change',
+            action: 'payment_succeeded',
+            resourceType: 'user',
+            details: {
+              subscriptionId: paymentSubId,
+              paymentId: succeededPayment.id,
+              amount: succeededPayment.amount,
+              currency: succeededPayment.currency
+            }
+          });
+          logger.info('Payment succeeded via webhook', { userId: paymentUser.id, subscriptionId: paymentSubId, amount: succeededPayment.amount });
         }
       }
       break;
