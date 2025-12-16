@@ -72,7 +72,13 @@ app.use(compression());
 // Logging
 app.use(morgan('combined'));
 
-// Body parsing middleware
+// ============================================
+// CRITICAL: Webhook route MUST come BEFORE express.json()
+// Webhooks need raw body for signature verification
+// ============================================
+app.use('/api/v1/webhooks', webhooksRoutes);
+
+// Body parsing middleware (for all OTHER routes)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -104,7 +110,7 @@ app.get('/billing/return', (req, res) => {
   res.redirect(newUrl);
 });
 
-// API routes
+// API routes (after express.json() since they need parsed JSON)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1/assets', assetRoutes);
@@ -114,12 +120,8 @@ app.use('/api/v1/outfits', outfitsRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
-app.use('/api/v1/webhooks', webhooksRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/public', publicRoutes);
-
-// Global error handler
-app.use(errorHandler);
 
 // Initialize application
 async function initializeApp() {
@@ -172,6 +174,9 @@ async function initializeApp() {
       console.warn('⚠️ Bull Board setup failed, continuing without dashboard:', bullBoardError.message);
     }
 
+    // Global error handler (must be after all routes)
+    app.use(errorHandler);
+
     // 404 handler - must be registered after all other routes
     app.use('*', (req, res) => {
       res.status(404).json({
@@ -186,6 +191,7 @@ async function initializeApp() {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV}`);
       console.log(`🔗 API Base URL: http://localhost:${PORT}/api/v1`);
+      console.log(`🪝 Webhook URL: http://localhost:${PORT}/api/v1/webhooks/dodo`);
       console.log(`🔴 Redis Status: ${process.env.REDIS_URL || process.env.RAILWAY_REDIS_URL ? 'Configured' : 'Not Configured'}`);
     });
   } catch (error) {
