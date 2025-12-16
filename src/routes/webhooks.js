@@ -104,7 +104,7 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
     'webhook-signature': req.headers['webhook-signature'],
     'webhook-timestamp': req.headers['webhook-timestamp']
   };
-  const secret = process.env.DODO_PAYMENTS_WEBHOOK_KEY;
+  const secret = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
 
   console.log('Payload length:', payload.length);
   console.log('Headers present:', {
