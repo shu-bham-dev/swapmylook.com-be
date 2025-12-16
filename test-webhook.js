@@ -1,64 +1,50 @@
-import fetch from 'node-fetch';
+import express from 'express';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
 
-dotenv.config();
+const app = express();
+const PORT = 3003;
 
-const WEBHOOK_URL = 'http://localhost:3001/api/v1/webhooks/dodo'; // Adjust port if needed
-const WEBHOOK_SECRET = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
+// Middleware to log all requests
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log('=== WEBHOOK RECEIVED ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+  console.log('=======================');
+  next();
+});
 
-// Test webhook payload for subscription.active
-const testPayload = {
-  id: 'evt_test_123',
-  type: 'subscription.active',
-  timestamp: Math.floor(Date.now() / 1000),
-  business_id: 'test_business',
-  data: {
-    id: 'sub_rWLjtcbslIUCMcIcymyHB', // Use the actual subscription ID from your test
-    customer_id: 'cus_test_123',
-    status: 'active',
-    current_period_end: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days from now
-    product_id: process.env.DODO_PRODUCT_BASIC,
-    metadata: {
-      app_user_id: '507f1f77bcf86cd799439011' // Replace with actual user ID
+// Simple webhook endpoint
+app.post('/test-webhook', (req, res) => {
+  console.log('Test webhook body:', JSON.stringify(req.body, null, 2));
+  
+  // Check if it's a Dodo webhook
+  if (req.body.type) {
+    console.log('Dodo event type:', req.body.type);
+    console.log('Event data:', JSON.stringify(req.body.data, null, 2));
+    
+    // Check for subscription events
+    if (req.body.type.includes('subscription')) {
+      const subscription = req.body.data;
+      console.log('Subscription ID:', subscription.id);
+      console.log('Product ID:', subscription.product_id);
+      console.log('Status:', subscription.status);
+      console.log('Metadata:', subscription.metadata);
+      console.log('Customer ID:', subscription.customer_id);
     }
   }
-};
+  
+  res.status(200).send('OK');
+});
 
-async function testWebhook() {
-  try {
-    const payloadString = JSON.stringify(testPayload);
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signedPayload = `${timestamp}.${payloadString}`;
-    
-    const signature = crypto
-      .createHmac('sha256', WEBHOOK_SECRET)
-      .update(signedPayload)
-      .digest('hex');
-    
-    const headers = {
-      'Content-Type': 'application/json',
-      'webhook-signature': `t=${timestamp},v1=${signature}`
-    };
+// Health check
+app.get('/', (req, res) => {
+  res.send('Webhook test server running');
+});
 
-    console.log('Sending test webhook...');
-    console.log('URL:', WEBHOOK_URL);
-    console.log('Payload:', JSON.stringify(testPayload, null, 2));
-    console.log('Headers:', headers);
-
-    const response = await fetch(WEBHOOK_URL, {
-      method: 'POST',
-      headers,
-      body: payloadString
-    });
-
-    console.log('Response status:', response.status);
-    const responseText = await response.text();
-    console.log('Response body:', responseText);
-
-  } catch (error) {
-    console.error('Error testing webhook:', error.message);
-  }
-}
-
-testWebhook();
+app.listen(PORT, () => {
+  console.log(`Webhook test server listening on port ${PORT}`);
+  console.log(`Test endpoint: http://localhost:${PORT}/test-webhook`);
+});

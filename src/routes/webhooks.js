@@ -9,52 +9,75 @@ const router = express.Router();
 const logger = createLogger('webhooks-routes');
 
 /**
- * Verify Dodo webhook signature.
- * According to Dodo documentation, webhook signature is HMAC SHA256 of timestamp + '.' + payload.
- * Header format: "t=timestamp,v1=signature"
+ * Verify Dodo webhook signature using multiple possible formats.
+ * 1. Standard Webhooks format: header "webhook-signature" with "t=timestamp,v1=signature"
+ *    HMAC SHA256 of timestamp + '.' + payload
+ * 2. Simple HMAC format: header "x-dodo-signature" with HMAC SHA256 of raw payload
  */
-const verifyDodoSignature = (payload, signatureHeader, secret) => {
+const verifyDodoSignature = (payload, signatureHeader, secret, headerName = 'webhook-signature') => {
   if (!signatureHeader || !secret) {
     return false;
   }
 
-  try {
-    // Parse header: "t=1234567890,v1=signature"
-    const parts = signatureHeader.split(',');
-    let timestamp = '';
-    let signature = '';
+  // Determine which format based on header name
+  if (headerName === 'webhook-signature' || headerName === 'webhook_signature') {
+    // Standard Webhooks format
+    try {
+      // Parse header: "t=1234567890,v1=signature"
+      const parts = signatureHeader.split(',');
+      let timestamp = '';
+      let signature = '';
 
-    for (const part of parts) {
-      const [key, value] = part.split('=');
-      if (key === 't') {
-        timestamp = value;
-      } else if (key === 'v1') {
-        signature = value;
+      for (const part of parts) {
+        const [key, value] = part.split('=');
+        if (key === 't') {
+          timestamp = value;
+        } else if (key === 'v1') {
+          signature = value;
+        }
       }
-    }
 
-    if (!timestamp || !signature) {
+      if (!timestamp || !signature) {
+        return false;
+      }
+
+      // Create signed payload: timestamp + '.' + payload
+      const signedPayload = `${timestamp}.${payload}`;
+
+      // Calculate expected signature
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(signedPayload)
+        .digest('hex');
+
+      // Use timing-safe comparison
+      return crypto.timingSafeEqual(
+        Buffer.from(expectedSignature),
+        Buffer.from(signature)
+      );
+    } catch (error) {
+      logger.error('Error verifying standard webhook signature', { error: error.message });
       return false;
     }
-
-    // Create signed payload: timestamp + '.' + payload
-    const signedPayload = `${timestamp}.${payload}`;
-
-    // Calculate expected signature
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(signedPayload)
-      .digest('hex');
-
-    // Use timing-safe comparison
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature),
-      Buffer.from(signature)
-    );
-  } catch (error) {
-    logger.error('Error verifying webhook signature', { error: error.message });
-    return false;
+  } else if (headerName === 'x-dodo-signature') {
+    // Simple HMAC format
+    try {
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
+      
+      return crypto.timingSafeEqual(
+        Buffer.from(expectedSignature),
+        Buffer.from(signatureHeader)
+      );
+    } catch (error) {
+      logger.error('Error verifying simple HMAC signature', { error: error.message });
+      return false;
+    }
   }
+  
+  return false;
 };
 
 /**
@@ -119,20 +142,42 @@ router.post('/dodo', express.raw({ type: 'application/json' }), asyncHandler(asy
   console.log('=== DODO WEBHOOK RECEIVED ===');
   console.log('Headers:', JSON.stringify(req.headers, null, 2));
   
-  const sigHeader = req.headers['webhook-signature'] || req.headers['webhook_signature'];
+  // Try multiple possible signature headers
+  const sigHeaderStandard = req.headers['webhook-signature'] || req.headers['webhook_signature'];
+  const sigHeaderSimple = req.headers['x-dodo-signature'];
   const secret = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
   const payload = req.body; // raw buffer
   
   console.log('Payload length:', payload.length);
-  console.log('Signature header present:', !!sigHeader);
+  console.log('Standard signature header present:', !!sigHeaderStandard);
+  console.log('Simple signature header present:', !!sigHeaderSimple);
   console.log('Webhook secret present:', !!secret);
 
-  // Verify signature
-  if (!verifyDodoSignature(payload, sigHeader, secret)) {
-    logger.warn('Invalid webhook signature', { header: sigHeader });
-    console.log('❌ Signature verification failed');
+  let signatureValid = false;
+  let usedHeader = '';
+
+  // Try Standard Webhooks format first
+  if (sigHeaderStandard) {
+    signatureValid = verifyDodoSignature(payload, sigHeaderStandard, secret, 'webhook-signature');
+    usedHeader = 'webhook-signature';
+  }
+  
+  // If that fails, try simple HMAC format
+  if (!signatureValid && sigHeaderSimple) {
+    signatureValid = verifyDodoSignature(payload, sigHeaderSimple, secret, 'x-dodo-signature');
+    usedHeader = 'x-dodo-signature';
+  }
+
+  if (!signatureValid) {
+    logger.warn('Invalid webhook signature', {
+      standardHeader: sigHeaderStandard,
+      simpleHeader: sigHeaderSimple
+    });
+    console.log('❌ Signature verification failed for both formats');
     return res.status(400).send('Invalid signature');
   }
+  
+  console.log(`✅ Signature verified successfully using ${usedHeader}`);
   
   console.log('✅ Signature verified successfully');
 
