@@ -105,7 +105,7 @@ router.post(
       'webhook-timestamp': req.headers['webhook-timestamp'],
     };
 
-    const secret = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
+    const secret = process.env.DODO_PAYMENTS_WEBHOOK_KEY;
 
     /* Verify signature */
     const isValid = verifyDodoSignature(rawPayload, headers, secret);
