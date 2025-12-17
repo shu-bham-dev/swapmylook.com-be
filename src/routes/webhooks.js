@@ -3,14 +3,14 @@ import crypto from 'crypto';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import User from '../models/User.js';
 import Audit from '../models/Audit.js';
-import ProcessedWebhook from '../models/ProcessedWebhook.js'; // ✅ REQUIRED
+import ProcessedWebhook from '../models/ProcessedWebhook.js';
 import { createLogger } from '../utils/logger.js';
 
 const router = express.Router();
 const logger = createLogger('dodo-webhooks');
 
 /* ------------------------------------------------------------------ */
-/* SIGNATURE VERIFICATION (STANDARD WEBHOOKS)                          */
+/* SIGNATURE VERIFICATION                                              */
 /* ------------------------------------------------------------------ */
 
 function verifyDodoSignature(rawPayload, headers, secret) {
@@ -18,62 +18,79 @@ function verifyDodoSignature(rawPayload, headers, secret) {
   const webhookSignature = headers['webhook-signature'];
   const webhookTimestamp = headers['webhook-timestamp'];
 
+  console.log('🔐 Verifying Dodo webhook signature...');
+  console.log('Headers:', {
+    webhookId,
+    webhookTimestamp,
+    hasSignature: !!webhookSignature,
+    hasSecret: !!secret,
+  });
+
   if (!webhookId || !webhookSignature || !webhookTimestamp || !secret) {
-    logger.warn('Missing webhook headers or secret');
+    console.log('❌ Missing required webhook headers or secret');
     return false;
   }
 
-  /* -------------------------------------------------- */
-  /* Timestamp tolerance (5 minutes)                    */
-  /* -------------------------------------------------- */
+  /* Timestamp tolerance */
   const now = Math.floor(Date.now() / 1000);
   const tolerance = 5 * 60;
 
   if (Math.abs(now - Number(webhookTimestamp)) > tolerance) {
-    logger.warn('Webhook timestamp outside tolerance', {
-      webhookTimestamp,
+    console.log('❌ Webhook timestamp outside tolerance', {
       now,
+      webhookTimestamp,
     });
     return false;
   }
 
   try {
-    // Standard Webhooks signed payload
     const signedPayload = `${webhookId}.${webhookTimestamp}.${rawPayload}`;
 
-    // IMPORTANT: base64url (NOT base64)
+    console.log('Signed payload preview:', signedPayload.slice(0, 100));
+    console.log('Payload length:', rawPayload.length);
+
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(signedPayload, 'utf8')
-      .digest('base64url');
+      .digest('base64url'); // ✅ IMPORTANT
 
-    // webhook-signature can contain multiple signatures
+    console.log('Expected signature:', expectedSignature);
+
     const signatures = webhookSignature.split(' ');
 
     for (const sig of signatures) {
       const [version, signature] = sig.split(',');
-      if (version !== 'v1' || !signature) continue;
+
+      if (version !== 'v1') continue;
+
+      console.log('Comparing signatures:', {
+        expected: expectedSignature,
+        received: signature,
+      });
 
       try {
-        if (
-          crypto.timingSafeEqual(
-            Buffer.from(expectedSignature),
-            Buffer.from(signature)
-          )
-        ) {
+        const match = crypto.timingSafeEqual(
+          Buffer.from(expectedSignature),
+          Buffer.from(signature)
+        );
+
+        if (match) {
+          console.log('✅ Signature match found');
           return true;
         }
-      } catch {
-        // Fallback (length mismatch)
-        if (expectedSignature === signature) return true;
+      } catch (err) {
+        if (expectedSignature === signature) {
+          console.log('✅ Signature match found (string fallback)');
+          return true;
+        }
+        console.log('Signature comparison error:', err.message);
       }
     }
 
+    console.log('❌ No matching signature found');
     return false;
-  } catch (err) {
-    logger.error('Webhook signature verification failed', {
-      error: err.message,
-    });
+  } catch (error) {
+    console.log('❌ Signature verification error:', error.message);
     return false;
   }
 }
@@ -86,7 +103,13 @@ router.post(
   '/dodo',
   express.raw({ type: 'application/json' }),
   asyncHandler(async (req, res) => {
+    console.log('\n================ DODO WEBHOOK RECEIVED ================');
+
+    console.log('Incoming headers:', JSON.stringify(req.headers, null, 2));
+
     const rawPayload = req.body.toString();
+    console.log('Raw payload length:', rawPayload.length);
+
     const headers = {
       'webhook-id': req.headers['webhook-id'],
       'webhook-signature': req.headers['webhook-signature'],
@@ -95,49 +118,45 @@ router.post(
 
     const secret = process.env.DODO_PAYMENTS_WEBHOOK_SECRET;
 
-    /* -------------------------------------------------- */
-    /* Verify signature                                   */
-    /* -------------------------------------------------- */
+    /* Verify signature */
     const isValid = verifyDodoSignature(rawPayload, headers, secret);
     if (!isValid) {
+      console.log('❌ Webhook signature verification FAILED');
       return res.status(401).json({ error: 'Invalid signature' });
     }
 
-    /* -------------------------------------------------- */
-    /* Parse payload                                      */
-    /* -------------------------------------------------- */
+    console.log('✅ Webhook signature verified');
+
+    /* Parse payload */
     let event;
     try {
       event = JSON.parse(rawPayload);
-    } catch {
+      console.log('Parsed webhook event:', event.type);
+    } catch (err) {
+      console.log('❌ JSON parse error:', err.message);
       return res.status(400).json({ error: 'Invalid JSON' });
     }
 
-    /* -------------------------------------------------- */
-    /* Idempotency check                                  */
-    /* -------------------------------------------------- */
+    /* Idempotency */
     const webhookId = headers['webhook-id'];
-    const alreadyProcessed = await ProcessedWebhook.findOne({ webhookId });
+    const exists = await ProcessedWebhook.findOne({ webhookId });
 
-    if (alreadyProcessed) {
+    if (exists) {
+      console.log('🔁 Duplicate webhook received, skipping processing:', webhookId);
       return res.status(200).json({ received: true });
     }
 
     await ProcessedWebhook.create({ webhookId });
+    console.log('🧾 Webhook ID stored for idempotency:', webhookId);
 
-    /* -------------------------------------------------- */
-    /* ACK immediately                                    */
-    /* -------------------------------------------------- */
+    /* ACK immediately */
     res.status(200).json({ received: true });
+    console.log('✅ Webhook acknowledged (200)');
 
-    /* -------------------------------------------------- */
-    /* Process asynchronously                             */
-    /* -------------------------------------------------- */
+    /* Async processing */
     processWebhookAsync(event).catch(err => {
-      logger.error('Async webhook processing failed', {
-        error: err.message,
-        type: event.type,
-      });
+      console.log('❌ Async processing error:', err.message);
+      logger.error('Async webhook error', { error: err.message });
     });
   })
 );
@@ -147,7 +166,12 @@ router.post(
 /* ------------------------------------------------------------------ */
 
 async function processWebhookAsync(event) {
-  if (!event?.type || !event?.data) return;
+  console.log('⚙️ Processing webhook event async:', event.type);
+
+  if (!event?.type || !event?.data) {
+    console.log('❌ Invalid webhook structure');
+    return;
+  }
 
   switch (event.type) {
     case 'subscription.created':
@@ -179,15 +203,17 @@ async function processWebhookAsync(event) {
       return handlePaymentFailed(event.data);
 
     default:
-      logger.info('Unhandled webhook event', { type: event.type });
+      console.log('ℹ️ Unhandled event type:', event.type);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* HANDLERS                                                            */
+/* HELPERS                                                             */
 /* ------------------------------------------------------------------ */
 
 async function findUser({ userId, subscriptionId, customerId }) {
+  console.log('🔎 Finding user:', { userId, subscriptionId, customerId });
+
   if (userId) {
     const u = await User.findById(userId);
     if (u) return u;
@@ -210,6 +236,8 @@ async function findUser({ userId, subscriptionId, customerId }) {
 }
 
 function applyPlan(user, plan) {
+  console.log('📦 Applying plan:', plan);
+
   user.plan = plan;
 
   switch (plan) {
@@ -228,25 +256,30 @@ function applyPlan(user, plan) {
   }
 }
 
-/* ---------------- SUBSCRIPTIONS ---------------- */
+/* ------------------------------------------------------------------ */
+/* HANDLERS                                                            */
+/* ------------------------------------------------------------------ */
 
 async function handleSubscriptionActive(subscription) {
+  console.log('🟢 Subscription active:', subscription.subscription_id);
+
   const user = await findUser({
     userId: subscription.metadata?.app_user_id,
     subscriptionId: subscription.subscription_id,
     customerId: subscription.customer?.customer_id,
   });
 
-  if (!user) return;
+  if (!user) {
+    console.log('❌ User not found for subscription.active');
+    return;
+  }
 
   user.subscription.status = 'active';
   user.subscription.dodoSubscriptionId = subscription.subscription_id;
   user.subscription.dodoCustomerId = subscription.customer?.customer_id;
 
   if (subscription.next_billing_date) {
-    user.subscription.currentPeriodEnd = new Date(
-      subscription.next_billing_date
-    );
+    user.subscription.currentPeriodEnd = new Date(subscription.next_billing_date);
   }
 
   if (subscription.metadata?.plan) {
@@ -254,25 +287,18 @@ async function handleSubscriptionActive(subscription) {
   }
 
   await user.save();
-
-  await Audit.logUsage({
-    userId: user.id,
-    type: 'subscription_change',
-    action: 'activated',
-    details: {
-      subscriptionId: subscription.subscription_id,
-      plan: user.plan,
-    },
-  });
+  console.log('✅ User subscription activated:', user.id);
 }
 
 async function handleSubscriptionUpdated(subscription) {
+  console.log('🔄 Subscription updated:', subscription.subscription_id);
   return handleSubscriptionActive(subscription);
 }
 
 async function handleSubscriptionPlanChanged(subscription) {
+  console.log('🔁 Subscription plan changed:', subscription.subscription_id);
+
   const user = await findUser({
-    userId: subscription.metadata?.app_user_id,
     subscriptionId: subscription.subscription_id,
   });
 
@@ -285,19 +311,12 @@ async function handleSubscriptionPlanChanged(subscription) {
   }
 
   await user.save();
-
-  await Audit.logUsage({
-    userId: user.id,
-    type: 'subscription_change',
-    action: 'plan_changed',
-    details: {
-      oldPlan,
-      newPlan: user.plan,
-    },
-  });
+  console.log(`✅ Plan changed from ${oldPlan} → ${user.plan}`);
 }
 
 async function handleSubscriptionRenewed(subscription) {
+  console.log('♻️ Subscription renewed:', subscription.subscription_id);
+
   const user = await findUser({
     subscriptionId: subscription.subscription_id,
   });
@@ -305,15 +324,15 @@ async function handleSubscriptionRenewed(subscription) {
   if (!user) return;
 
   if (subscription.next_billing_date) {
-    user.subscription.currentPeriodEnd = new Date(
-      subscription.next_billing_date
-    );
+    user.subscription.currentPeriodEnd = new Date(subscription.next_billing_date);
   }
 
   await user.save();
 }
 
 async function handleSubscriptionOnHold(subscription) {
+  console.log('⏸ Subscription on hold:', subscription.subscription_id);
+
   const user = await findUser({
     subscriptionId: subscription.subscription_id,
   });
@@ -325,6 +344,8 @@ async function handleSubscriptionOnHold(subscription) {
 }
 
 async function handleSubscriptionCancelled(subscription) {
+  console.log('❌ Subscription cancelled:', subscription.subscription_id);
+
   const user = await findUser({
     subscriptionId: subscription.subscription_id,
   });
@@ -338,12 +359,13 @@ async function handleSubscriptionCancelled(subscription) {
 }
 
 async function handleSubscriptionExpired(subscription) {
+  console.log('⌛ Subscription expired:', subscription.subscription_id);
   return handleSubscriptionCancelled(subscription);
 }
 
-/* ---------------- PAYMENTS ---------------- */
-
 async function handlePaymentSucceeded(payment) {
+  console.log('💰 Payment succeeded:', payment.id);
+
   const user = await User.findOne({
     'subscription.dodoSubscriptionId': payment.subscription_id,
   });
@@ -355,6 +377,8 @@ async function handlePaymentSucceeded(payment) {
 }
 
 async function handlePaymentFailed(payment) {
+  console.log('💥 Payment failed:', payment.id);
+
   const user = await User.findOne({
     'subscription.dodoSubscriptionId': payment.subscription_id,
   });
