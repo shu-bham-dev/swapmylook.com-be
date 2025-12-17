@@ -10,6 +10,7 @@ const logger = createLogger('webhooks-routes');
 
 /**
  * Verify Dodo webhook signature following Standard Webhooks specification
+ * Dodo uses Svix for webhook delivery: https://docs.svix.com/receiving/verifying-payloads/how
  * See: https://docs.dodopayments.com/developer-resources/webhooks
  */
 const verifyDodoSignature = (payload, headers, secret) => {
@@ -18,7 +19,12 @@ const verifyDodoSignature = (payload, headers, secret) => {
   const webhookTimestamp = headers['webhook-timestamp'];
 
   if (!webhookId || !webhookSignature || !webhookTimestamp || !secret) {
-    logger.warn('Missing required webhook headers or secret');
+    logger.warn('Missing required webhook headers or secret', {
+      hasId: !!webhookId,
+      hasSignature: !!webhookSignature,
+      hasTimestamp: !!webhookTimestamp,
+      hasSecret: !!secret
+    });
     return false;
   }
 
@@ -26,38 +32,71 @@ const verifyDodoSignature = (payload, headers, secret) => {
     // Standard Webhooks format: webhook-id.webhook-timestamp.payload
     const signedPayload = `${webhookId}.${webhookTimestamp}.${payload}`;
 
+    console.log('Signature verification details:', {
+      webhookId,
+      webhookTimestamp,
+      payloadLength: payload.length,
+      signedPayloadPrefix: signedPayload.substring(0, 100),
+      receivedSignature: webhookSignature
+    });
+
     // Calculate expected signature using HMAC SHA256
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(signedPayload, 'utf8')
       .digest('base64');
 
-    // The webhook-signature header contains signatures in format: v1,signature1 v1,signature2
+    console.log('Expected signature:', expectedSignature);
+
+    // The webhook-signature header can contain multiple signatures separated by spaces
+    // Format: "v1,signature1 v1,signature2" or just "v1,signature"
     const signatures = webhookSignature.split(' ');
     
     for (const sig of signatures) {
-      const [version, signature] = sig.split(',');
+      const parts = sig.split(',');
+      if (parts.length !== 2) {
+        console.log('Invalid signature format:', sig);
+        continue;
+      }
+      
+      const [version, signature] = parts;
       
       if (version === 'v1') {
+        console.log('Comparing signatures:', {
+          expected: expectedSignature,
+          received: signature,
+          match: expectedSignature === signature
+        });
+        
         try {
+          // Use timing-safe comparison
           const matches = crypto.timingSafeEqual(
             Buffer.from(expectedSignature),
             Buffer.from(signature)
           );
           
           if (matches) {
+            console.log('✅ Signature match found!');
             return true;
           }
         } catch (error) {
-          // Buffer lengths don't match, continue to next signature
-          continue;
+          // Buffer lengths don't match, try string comparison as fallback
+          if (expectedSignature === signature) {
+            console.log('✅ Signature match found (string comparison)!');
+            return true;
+          }
+          console.log('Signature comparison error:', error.message);
         }
       }
     }
 
+    console.log('❌ No matching signature found');
     return false;
   } catch (error) {
-    logger.error('Error verifying webhook signature', { error: error.message });
+    logger.error('Error verifying webhook signature', { 
+      error: error.message,
+      stack: error.stack 
+    });
     return false;
   }
 };
