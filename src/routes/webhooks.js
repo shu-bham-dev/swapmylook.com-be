@@ -31,15 +31,10 @@ function verifyDodoSignature(rawPayload, headers, secret) {
     return false;
   }
 
-  /* Timestamp tolerance */
+  // ⏱ Timestamp tolerance (5 min)
   const now = Math.floor(Date.now() / 1000);
-  const tolerance = 5 * 60;
-
-  if (Math.abs(now - Number(webhookTimestamp)) > tolerance) {
-    console.log('❌ Webhook timestamp outside tolerance', {
-      now,
-      webhookTimestamp,
-    });
+  if (Math.abs(now - Number(webhookTimestamp)) > 5 * 60) {
+    console.log('❌ Webhook timestamp outside tolerance');
     return false;
   }
 
@@ -49,10 +44,11 @@ function verifyDodoSignature(rawPayload, headers, secret) {
     console.log('Signed payload preview:', signedPayload.slice(0, 100));
     console.log('Payload length:', rawPayload.length);
 
+    // ✅ IMPORTANT: STANDARD BASE64 (Svix requirement)
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(signedPayload, 'utf8')
-      .digest('base64url'); // ✅ IMPORTANT
+      .digest('base64');
 
     console.log('Expected signature:', expectedSignature);
 
@@ -60,30 +56,22 @@ function verifyDodoSignature(rawPayload, headers, secret) {
 
     for (const sig of signatures) {
       const [version, signature] = sig.split(',');
-
-      if (version !== 'v1') continue;
+      if (version !== 'v1' || !signature) continue;
 
       console.log('Comparing signatures:', {
         expected: expectedSignature,
         received: signature,
       });
 
-      try {
-        const match = crypto.timingSafeEqual(
-          Buffer.from(expectedSignature),
-          Buffer.from(signature)
-        );
+      const expectedBuf = Buffer.from(expectedSignature);
+      const receivedBuf = Buffer.from(signature);
 
-        if (match) {
-          console.log('✅ Signature match found');
-          return true;
-        }
-      } catch (err) {
-        if (expectedSignature === signature) {
-          console.log('✅ Signature match found (string fallback)');
-          return true;
-        }
-        console.log('Signature comparison error:', err.message);
+      if (
+        expectedBuf.length === receivedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, receivedBuf)
+      ) {
+        console.log('✅ Signature match found');
+        return true;
       }
     }
 
@@ -94,6 +82,7 @@ function verifyDodoSignature(rawPayload, headers, secret) {
     return false;
   }
 }
+
 
 /* ------------------------------------------------------------------ */
 /* WEBHOOK ENDPOINT                                                    */
