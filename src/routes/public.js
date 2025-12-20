@@ -217,4 +217,123 @@ router.get('/images', asyncHandler(async (req, res) => {
   });
 }));
 
+/**
+ * @swagger
+ * /api/v1/public/plans:
+ *   get:
+ *     summary: Get available subscription plans (public)
+ *     description: Returns all available subscription plans with pricing and features. This endpoint does not require authentication.
+ *     tags: [Public]
+ *     responses:
+ *       200:
+ *         description: Plans retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 plans:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         enum: [free, basic, premium, pro]
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       price:
+ *                         type: object
+ *                         properties:
+ *                           monthly:
+ *                             type: number
+ *                           yearly:
+ *                             type: number
+ *                       features:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       monthlyRequests:
+ *                         type: number
+ *                       popular:
+ *                         type: boolean
+ */
+router.get('/plans', asyncHandler(async (req, res) => {
+  const plans = [
+    {
+      id: 'free',
+      name: 'Free',
+      description: 'Perfect for trying out SwapMyLook with 1 free trial image',
+      price: { monthly: 0, yearly: 0 },
+      features: [
+        '1 free outfit visualization',
+        'Basic model selection',
+        'Standard quality renders',
+        'Community support',
+        'Watermarked downloads'
+      ],
+      monthlyRequests: 1,
+      popular: false
+    },
+    {
+      id: 'basic',
+      name: 'Basic',
+      description: 'For casual users who want more flexibility',
+      price: { monthly: 9, yearly: 90 },
+      features: [
+        '10 outfit visualizations per month',
+        'Full outfit library access',
+        'HD quality renders',
+        'Basic editing tools',
+        'Watermark-free downloads',
+        'Email support'
+      ],
+      monthlyRequests: 10,
+      popular: false
+    },
+    {
+      id: 'premium',
+      name: 'Premium',
+      description: 'For fashion enthusiasts and influencers',
+      price: { monthly: 19, yearly: 190 },
+      features: [
+        '50 outfit visualizations per month',
+        'Full outfit library access',
+        'HD quality renders',
+        'Advanced editing tools',
+        'Watermark-free downloads',
+        'Priority customer support',
+        'Style trend insights',
+        'Custom model uploads'
+      ],
+      monthlyRequests: 50,
+      popular: true
+    },
+    {
+      id: 'pro',
+      name: 'Pro',
+      description: 'For professional fashion creators and businesses',
+      price: { monthly: 49, yearly: 490 },
+      features: [
+        '100 outfit visualizations per month',
+        'Full outfit library access',
+        '4K quality renders',
+        'Advanced editing tools',
+        'Watermark-free downloads',
+        'Priority customer support',
+        'Style trend insights',
+        'Custom model uploads',
+        'API access',
+        'Advanced analytics'
+      ],
+      monthlyRequests: 100,
+      popular: false
+    }
+  ];
+
+  res.json({ plans });
+}));
+
 export default router;
