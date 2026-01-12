@@ -7,8 +7,10 @@ import { requireAuth } from '../config/passport.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { authRateLimiter } from '../middleware/rateLimiter.js';
 import User from '../models/User.js';
+import OTP from '../models/OTP.js';
 import Audit from '../models/Audit.js';
 import { createLogger } from '../utils/logger.js';
+import { emailService } from '../services/emailService.js';
 
 /**
  * @swagger
@@ -601,8 +603,8 @@ router.post('/test-token', authRateLimiter, asyncHandler(async (req, res) => {
  * @swagger
  * /api/v1/auth/signup:
  *   post:
- *     summary: Create a new user account
- *     description: Register a new user with email and password
+ *     summary: Initiate signup process by sending OTP
+ *     description: Register a new user by sending OTP to email for verification
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -623,25 +625,27 @@ router.post('/test-token', authRateLimiter, asyncHandler(async (req, res) => {
  *               password:
  *                 type: string
  *                 format: password
- *                 description: User's password (min 6 characters)
- *                 example: "password123"
+ *                 description: User's password (min 8 characters with complexity)
+ *                 example: "SecurePass123!"
  *               name:
  *                 type: string
  *                 description: User's full name
  *                 example: "John Doe"
  *     responses:
- *       201:
- *         description: User created successfully
+ *       200:
+ *         description: OTP sent successfully for email verification
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 token:
+ *                 message:
  *                   type: string
- *                   description: JWT token for API authentication
- *                 user:
- *                   $ref: '#/components/schemas/UserProfile'
+ *                   example: "OTP sent successfully"
+ *                 expiresIn:
+ *                   type: integer
+ *                   description: OTP expiration time in minutes
+ *                   example: 10
  *       400:
  *         description: Bad request - missing or invalid fields
  *         content:
@@ -699,50 +703,45 @@ router.post('/signup', authRateLimiter, asyncHandler(async (req, res) => {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
 
-    // Hash password
-    const saltRounds = 12;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Create new user
-    const user = new User({
-      email: email.toLowerCase(),
-      name: name.trim(),
-      passwordHash,
-      plan: 'free',
-      isActive: true
-    });
+    // Create or update OTP record
+    await OTP.findOneAndUpdate(
+      { email: email.toLowerCase(), purpose: 'signup' },
+      {
+        code: otp,
+        expiresAt,
+        attempts: 0,
+        verified: false,
+        metadata: { name, password }
+      },
+      { upsert: true, new: true }
+    );
 
-    await user.save();
+    // Send OTP via email
+    await emailService.sendOTPEmail(email, otp, 'signup', name);
 
-    // Generate JWT token
-    const token = generateJWTToken(user);
-
-    // Log successful signup
+    // Log OTP sent
     await Audit.logUsage({
-      userId: user._id,
       type: 'signup',
-      action: 'email_signup_success',
+      action: 'otp_signup_initiated',
       details: {
         method: 'POST',
         endpoint: '/auth/signup',
-        statusCode: 201
+        statusCode: 200,
+        email
       }
     });
 
-    res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatarUrl: user.avatarUrl,
-        plan: user.plan,
-        quota: user.quota
-      }
+    res.json({
+      message: 'OTP sent successfully',
+      expiresIn: 10
     });
   } catch (error) {
-    logger.error('Signup failed', { error: error.message, email });
-    res.status(500).json({ error: 'Failed to create user account' });
+    logger.error('Signup OTP sending failed', { error: error.message, email });
+    res.status(500).json({ error: 'Failed to send OTP for signup' });
   }
 }));
 

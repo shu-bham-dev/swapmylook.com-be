@@ -38,6 +38,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
+import otpRoutes from './routes/otp.js';
 import uploadRoutes from './routes/uploads.js';
 import assetRoutes from './routes/assets.js';
 import generateRoutes from './routes/generate.js';
@@ -112,6 +113,7 @@ app.get('/billing/return', (req, res) => {
 
 // API routes (after express.json() since they need parsed JSON)
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth/otp', otpRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1/assets', assetRoutes);
 app.use('/api/v1/generate', generateRoutes);

@@ -139,6 +139,10 @@ const userSchema = new mongoose.Schema({
   profilePicture: {
     type: String,
     trim: true
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true,

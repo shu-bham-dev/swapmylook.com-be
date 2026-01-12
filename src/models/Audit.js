@@ -4,11 +4,14 @@ const auditSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: function() {
+      // userId is required for all types except 'otp'
+      return this.type !== 'otp';
+    }
   },
   type: {
     type: String,
-    enum: ['generation', 'download', 'upload', 'login', 'signup', 'quota_adjustment', 'subscription_change', 'outfits', 'settings'],
+    enum: ['generation', 'download', 'upload', 'login', 'signup', 'quota_adjustment', 'subscription_change', 'outfits', 'settings', 'otp'],
     required: true
   },
   action: {

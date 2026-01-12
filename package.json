@@ -28,6 +28,7 @@
     "@bull-board/api": "^6.13.0",
     "@bull-board/express": "^6.13.0",
     "@bull-board/ui": "^6.13.0",
+    "@getbrevo/brevo": "^3.0.1",
     "aws-sdk": "^2.1513.0",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
