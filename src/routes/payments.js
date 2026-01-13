@@ -17,7 +17,8 @@ function getClient() {
     if (!apiKey) {
       throw new Error('DODO_PAYMENTS_API_KEY environment variable is missing');
     }
-    client = new DodoPayments({ bearerToken: apiKey, environment: 'test_mode' });
+    const environment = process.env.DODO_PAYMENTS_ENVIRONMENT || 'test_mode';
+    client = new DodoPayments({ bearerToken: apiKey, environment });
   }
   return client;
 }
