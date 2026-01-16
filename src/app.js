@@ -50,6 +50,7 @@ import paymentsRoutes from './routes/payments.js';
 import webhooksRoutes from './routes/webhooks.js';
 import adminRoutes from './routes/admin.js';
 import publicRoutes from './routes/public.js';
+import toolsRoutes from './routes/tools.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -124,6 +125,7 @@ app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/public', publicRoutes);
+app.use('/api/v1/tools', toolsRoutes);
 
 // Initialize application
 async function initializeApp() {

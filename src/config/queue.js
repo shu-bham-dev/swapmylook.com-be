@@ -33,7 +33,27 @@ export function initQueues() {
       }
     });
 
+    // Quilt design queue
+    const quiltDesignQueue = new BullQueue('quilt-design', {
+      connection: redisClient,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 30000 // 30 seconds
+        },
+        removeOnComplete: {
+          age: 24 * 3600, // keep completed jobs for 24 hours
+          count: 1000 // keep up to 1000 completed jobs
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600 // keep failed jobs for 7 days
+        }
+      }
+    });
+
     queues.set('generate', generateQueue);
+    queues.set('quilt-design', quiltDesignQueue);
 
     // Add event listeners for queue events
     generateQueue.on('waiting', (jobId) => {
@@ -50,6 +70,23 @@ export function initQueues() {
 
     generateQueue.on('progress', (job, progress) => {
       logger.debug('Job progress', { queue: 'generate', jobId: job.id, progress });
+    });
+
+    // Quilt design queue events
+    quiltDesignQueue.on('waiting', (jobId) => {
+      logger.debug('Job waiting', { queue: 'quilt-design', jobId });
+    });
+
+    quiltDesignQueue.on('delayed', (jobId) => {
+      logger.debug('Job delayed', { queue: 'quilt-design', jobId });
+    });
+
+    quiltDesignQueue.on('active', (job, jobPromise) => {
+      logger.debug('Job active', { queue: 'quilt-design', jobId: job.id });
+    });
+
+    quiltDesignQueue.on('progress', (job, progress) => {
+      logger.debug('Job progress', { queue: 'quilt-design', jobId: job.id, progress });
     });
 
     logger.info('Job queues initialized');
@@ -372,6 +409,17 @@ export const Queue = {
   resume: () => resumeQueue('generate'),
   empty: () => emptyQueue('generate'),
   getJobCounts: () => getJobCounts('generate')
+};
+
+export const QuiltDesignQueue = {
+  add: (jobName, data, options) => add('quilt-design', jobName, data, options),
+  getJob: (jobId) => getJob('quilt-design', jobId),
+  getMetrics: () => getQueueMetrics('quilt-design'),
+  clean: (maxAge) => cleanQueue('quilt-design', maxAge),
+  pause: () => pauseQueue('quilt-design'),
+  resume: () => resumeQueue('quilt-design'),
+  empty: () => emptyQueue('quilt-design'),
+  getJobCounts: () => getJobCounts('quilt-design')
 };
 
 export default {
