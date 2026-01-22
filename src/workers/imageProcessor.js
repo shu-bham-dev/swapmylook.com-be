@@ -1,12 +1,10 @@
 import { Worker } from 'bullmq';
-import Redis from 'ioredis';
 import ImageAsset from '../models/ImageAsset.js';
 import JobRecord from '../models/JobRecord.js';
 import Audit from '../models/Audit.js';
 import { createLogger } from '../utils/logger.js';
 import axios from 'axios';
 import dotenv from 'dotenv';
-import https from 'https';
 
 // Load environment variables
 dotenv.config();
@@ -281,36 +279,59 @@ async function processGenerationJob(job) {
     // Convert base64 image to buffer
     const outputImageBuffer = Buffer.from(generatedImageData.data, 'base64');
 
-    // Generate storage key for output (without extension - let Cloudinary detect)
-    const { generateStorageKey, uploadBuffer } = await import('../config/storage.js');
-    const outputKey = generateStorageKey('outputs', `output-${jobId}`, jobRecord.userId);
-
-    // Upload output to storage (let Cloudinary detect MIME type)
-    await uploadBuffer(outputImageBuffer, outputKey, generatedImageData.mimeType);
-
-    // Generate download URL
-    const downloadUrl = await generateDownloadUrl(outputKey, 86400); // 24 hours
-
-    // Create output image asset
-    const outputImage = new ImageAsset({
+    // Check if an output image already exists for this job (idempotency check for retries)
+    let outputImage = await ImageAsset.findOne({
       userId: jobRecord.userId,
       type: 'output',
-      storageKey: outputKey,
-      url: downloadUrl,
-      mimeType: generatedImageData.mimeType,
-      sizeBytes: outputImageBuffer.length,
-      originalImageId: jobRecord.inputModelImageId,
-      metadata: {
-        filename: `output-${jobId}`,
-        prompt: jobRecord.prompt,
-        options: jobRecord.options,
-        processingTime: Date.now() - startTime,
-        aiModel: 'gemini-2.5-flash-image',
-        source: 'worker-generation'
-      }
+      'metadata.filename': `output-${jobId}`
     });
 
-    await outputImage.save();
+    if (outputImage) {
+      // Output image already exists - log and reuse it
+      job.log('✅ Output image already exists for this job, reusing existing image');
+      logger.info('Reusing existing output image for job retry', {
+        jobId,
+        outputImageId: outputImage._id,
+        storageKey: outputImage.storageKey
+      });
+    } else {
+      // Generate deterministic storage key for output (same key for retries)
+      // Use jobId in the key to make it deterministic
+      const deterministicKey = `outputs/${jobRecord.userId}/output-${jobId}`;
+      
+      // Import storage functions
+      const { uploadBuffer } = await import('../config/storage.js');
+
+      // Upload output to storage (let Cloudinary detect MIME type)
+      // Cloudinary's overwrite:true will replace if same public_id exists
+      await uploadBuffer(outputImageBuffer, deterministicKey, generatedImageData.mimeType);
+
+      // Generate download URL
+      const downloadUrl = await generateDownloadUrl(deterministicKey, 86400); // 24 hours
+
+      // Create output image asset
+      outputImage = new ImageAsset({
+        userId: jobRecord.userId,
+        type: 'output',
+        storageKey: deterministicKey,
+        url: downloadUrl,
+        mimeType: generatedImageData.mimeType,
+        sizeBytes: outputImageBuffer.length,
+        originalImageId: jobRecord.inputModelImageId,
+        metadata: {
+          filename: `output-${jobId}`,
+          prompt: jobRecord.prompt,
+          options: jobRecord.options,
+          processingTime: Date.now() - startTime,
+          aiModel: 'gemini-2.5-flash-image',
+          source: 'worker-generation',
+          jobId: jobId
+        }
+      });
+
+      await outputImage.save();
+      job.log('✅ Created new output image asset');
+    }
 
     // Update job record with success
     const processingTime = Date.now() - startTime;
@@ -320,7 +341,9 @@ async function processGenerationJob(job) {
     jobRecord.processingTime = processingTime;
     await jobRecord.save();
 
-    // Generate thumbnails (optional - can be done async)
+    // Thumbnail generation disabled - user only wants the main generated image
+    // Commented out to prevent creating thumbnails
+    /*
     try {
       await generateThumbnails(outputImage);
     } catch (thumbnailError) {
@@ -329,6 +352,7 @@ async function processGenerationJob(job) {
         error: thumbnailError.message
       });
     }
+    */
 
     // Log successful generation
     await Audit.logUsage({
@@ -394,80 +418,12 @@ async function processGenerationJob(job) {
 
 /**
  * Generate thumbnails for output image
+ * DISABLED - User only wants the main generated image
  */
 async function generateThumbnails(outputImage) {
-  const thumbnailSizes = (process.env.THUMBNAIL_SIZES || '512,256')
-    .split(',')
-    .map(size => parseInt(size.trim()))
-    .filter(size => !isNaN(size));
-
-  if (thumbnailSizes.length === 0) {
-    return;
-  }
-
-  const sharp = await import('sharp');
-  const { uploadBuffer, generateDownloadUrl } = await import('../config/storage.js');
-
-  // Download original image
-  const response = await axios.get(outputImage.url, {
-    responseType: 'arraybuffer'
-  });
-  const originalBuffer = Buffer.from(response.data);
-
-  for (const size of thumbnailSizes) {
-    try {
-      // Create thumbnail
-      const thumbnailBuffer = await sharp.default(originalBuffer)
-        .resize(size, size, {
-          fit: 'inside',
-          withoutEnlargement: true
-        })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-
-      // Generate storage key
-      const thumbnailKey = `thumbnails/${outputImage.userId}/${size}/${outputImage._id}.jpg`;
-
-      // Upload thumbnail
-      await uploadBuffer(thumbnailBuffer, thumbnailKey, 'image/jpeg');
-
-      // Generate URL
-      const thumbnailUrl = generateDownloadUrl(thumbnailKey, 86400);
-
-      // Create thumbnail asset
-      const thumbnailAsset = new ImageAsset({
-        userId: outputImage.userId,
-        type: 'thumbnail',
-        storageKey: thumbnailKey,
-        url: thumbnailUrl,
-        width: size,
-        height: size,
-        mimeType: 'image/jpeg',
-        sizeBytes: thumbnailBuffer.length,
-        originalImageId: outputImage._id,
-        metadata: {
-          originalImageId: outputImage._id,
-          size,
-          generatedAt: new Date()
-        }
-      });
-
-      await thumbnailAsset.save();
-
-      // logger.debug('Thumbnail generated', {
-      //   outputImageId: outputImage._id,
-      //   size,
-      //   thumbnailId: thumbnailAsset._id
-      // });
-
-    } catch (error) {
-      logger.warn('Failed to generate thumbnail', {
-        outputImageId: outputImage._id,
-        size,
-        error: error.message
-      });
-    }
-  }
+  // Thumbnail generation is disabled
+  logger.debug('Thumbnail generation is disabled, skipping');
+  return;
 }
 
 /**
